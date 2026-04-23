@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from database.db import init_db, FileEvent, session
-from ml_detection import predict_file
+from content_classifier import predict_file
 import shutil
 
 # ----------------- Email Configuration -----------------
@@ -26,7 +26,7 @@ os.makedirs(QUARANTINE_FOLDER, exist_ok=True)
 # Initialize DB
 init_db()
 
-# ----------------- Email function -----------------
+# Email function
 def send_email(subject, body):
     try:
         msg = MIMEMultipart()
@@ -41,7 +41,7 @@ def send_email(subject, body):
     except Exception as e:
         print(f"Error sending email: {e}")
 
-# ----------------- DLP Handler -----------------
+#  DLP Handler
 class DLPHandler(FileSystemEventHandler):
     def __init__(self):
         super().__init__()
