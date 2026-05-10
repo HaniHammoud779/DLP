@@ -1,23 +1,24 @@
-# main.py
-
 from database.db import init_db, SessionLocal, FileEvent
-from datetime import datetime
+from datetime import datetime, timezone
 
-# Initialize database (creates tables if not exist)
 init_db()
 
-# Create a new session
 session = SessionLocal()
 
-# Test insertion
-test_event = FileEvent(
+event = FileEvent(
     filename="test_file.txt",
-    action="CREATED",
-    timestamp=datetime.utcnow()
+    action="TEST",
+    label="SAFE",
+    score=10.0,
+    ml_prediction="SAFE",
+    ml_confidence=0.90,
+    rule_score=0.0,
+    reason="Database test event",
+    timestamp=datetime.now(timezone.utc)
 )
 
-session.add(test_event)
+session.add(event)
 session.commit()
-
-print("Test event inserted successfully!")
 session.close()
+
+print("Database test inserted successfully.")
