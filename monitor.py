@@ -1,150 +1,189 @@
 import os
 import time
+import shutil
 import smtplib
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from database.db import init_db, FileEvent, session
-from content_classifier import predict_file
-import shutil
 
-# ----------------- Email Configuration -----------------
+from database.db import init_db, SessionLocal, FileEvent
+from content_classifier import predict_file
+
 EMAIL_FROM = "hanihammoud312@gmail.com"
-EMAIL_TO   = "hanihammoud312@gmail.com"
+EMAIL_TO = "hanihammoud312@gmail.com"
 EMAIL_PASSWORD = "cfpjdapicsmskrvz"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
-# ----------------- Watched and Quarantine folders -----------------
-WATCHED_FOLDER = os.path.join(os.getcwd(), "watched_folder")
-QUARANTINE_FOLDER = os.path.join(os.getcwd(), "quarantine")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WATCHED_FOLDER = os.path.join(BASE_DIR, "watched_folder")
+QUARANTINE_FOLDER = os.path.join(BASE_DIR, "quarantine")
+
 os.makedirs(WATCHED_FOLDER, exist_ok=True)
 os.makedirs(QUARANTINE_FOLDER, exist_ok=True)
 
-# Initialize DB
 init_db()
 
-# Email function
 def send_email(subject, body):
     try:
         msg = MIMEMultipart()
-        msg['From'] = EMAIL_FROM
-        msg['To'] = EMAIL_TO
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
+        msg["From"] = EMAIL_FROM
+        msg["To"] = EMAIL_TO
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
 
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
             server.send_message(msg)
-    except Exception as e:
-        print(f"Error sending email: {e}")
 
-#  DLP Handler
+        print("[EMAIL] Alert sent successfully")
+
+    except Exception as e:
+        print(f"[EMAIL ERROR] {e}")
+
+def should_ignore_file(file_path):
+    filename = os.path.basename(file_path)
+
+    if filename.endswith(".ignore"):
+        return True
+
+    if filename.startswith(".goutputstream"):
+        return True
+
+    if filename.startswith(".") or filename.endswith(".swp") or filename.endswith(".tmp"):
+        return True
+
+    return False
+
+
 class DLPHandler(FileSystemEventHandler):
     def __init__(self):
         super().__init__()
-        self.recently_created = {}
         self.last_processed_content = {}
 
-    def get_real_filename(self, file_path):
-        filename = os.path.basename(file_path)
-        if filename.startswith(".goutputstream-"):
-            folder = os.path.dirname(file_path)
-            candidates = [f for f in os.listdir(folder) if not f.startswith(".")]
-            if candidates:
-                filename = candidates[0]
-                file_path = os.path.join(folder, filename)
-        return file_path, filename
-
     def process_file(self, file_path, action):
-        file_path, filename = self.get_real_filename(file_path)
-        if action != "DELETED" and not os.path.isfile(file_path):
+
+        if should_ignore_file(file_path):
             return
 
-        if action != "DELETED":
-            time.sleep(0.05)
+        filename = os.path.basename(file_path)
 
-        content = ""
-        if action != "DELETED":
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except Exception:
-                pass
-            if filename in self.last_processed_content and self.last_processed_content[filename] == content:
-                return
-            self.last_processed_content[filename] = content
-
-        if action == "DELETED":
-            print(f"{action} -> {filename}")
-            event = FileEvent(
-                filename=filename,
-                action=action,
-                timestamp=datetime.now(timezone.utc)
-            )
-            session.add(event)
-            session.commit()
+        if not os.path.isfile(file_path):
             return
 
-        label, score, triggered_words, masked_content = predict_file(file_path)
-        display_name = f"{filename} ({label} - {score})"
-        print(f"{action} -> {display_name}")
+        marker = file_path + ".ignore"
 
-        if label == "SENSITIVE":
-            print(f"⚠️ ALERT: Sensitive data detected in {filename}!")
-            if triggered_words:
-                print(f"    Triggered words: {', '.join(triggered_words)}")
+        if os.path.exists(marker):
+            os.remove(marker)
+            print(f"[INFO] Ignored restored file: {filename}")
+            return
+
+        time.sleep(0.3)
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+        except:
+            content = ""
+
+        if self.last_processed_content.get(filename) == content:
+            return
+
+        self.last_processed_content[filename] = content
+
+        label, score, _, _, explanation = predict_file(file_path)
+
+        ml_label = explanation["ml_prediction"]
+        confidence = explanation["ml_confidence"]
+
+        if ml_label == "SENSITIVE" and confidence >= 0.60:
+            final_label = "SENSITIVE"
+
+        elif ml_label == "MEDIUM" and confidence >= 0.50:
+            final_label = "MEDIUM"
+
+        else:
+            final_label = "SAFE"
+
+        print(f"{action} -> {filename} ({final_label} - {score})")
+        print(f"    ML Prediction: {ml_label}")
+        print(f"    ML Confidence: {confidence}")
+        print(f"    ML Score: {score}")
+
+        if final_label == "SENSITIVE":
+            print(f"    Reason: {explanation['reason']}")
+
+        print(f"[FINAL DECISION] {final_label}")
+
+        if final_label == "SENSITIVE":
 
             quarantine_path = os.path.join(QUARANTINE_FOLDER, filename)
-            try:
-                shutil.move(file_path, quarantine_path)
-                print(f"File moved to quarantine: {quarantine_path}")
-            except Exception as e:
-                print(f"Failed to move file to quarantine: {e}")
 
-            body = f"File: {filename}\nScore: {score}\nTriggered words: {', '.join(triggered_words)}\nMoved to quarantine: {quarantine_path}\nMasked content:\n{masked_content}"
-            send_email(subject=f"SENSITIVE data detected: {filename}", body=body)
+            shutil.move(file_path, quarantine_path)
 
-        # Save event to database
+            print(f"[ACTION] moved to quarantine")
+
+            send_email("DLP Alert", f"Sensitive file detected: {filename}")
+
+        session = SessionLocal()
+
         event = FileEvent(
-            filename=display_name,
+            filename=filename,
             action=action,
+            label=final_label,
+            score=score,
+            ml_prediction=ml_label,
+            ml_confidence=confidence,
+            rule_score=0,
+            reason=explanation["reason"],
             timestamp=datetime.now(timezone.utc)
         )
+
         session.add(event)
         session.commit()
+        session.close()
 
     def on_created(self, event):
+
         if not event.is_directory:
-            self.recently_created[event.src_path] = time.time()
             self.process_file(event.src_path, "CREATED")
 
     def on_modified(self, event):
+
         if not event.is_directory:
-            if event.src_path in self.recently_created:
-                if time.time() - self.recently_created[event.src_path] < 1:
-                    return
             self.process_file(event.src_path, "MODIFIED")
 
-    def on_deleted(self, event):
-        if not event.is_directory:
-            self.process_file(event.src_path, "DELETED")
+    def on_moved(self, event):
 
-# ----------------- Main -----------------
+        if not event.is_directory:
+            self.process_file(event.dest_path, "MODIFIED")
+
+    def on_closed(self, event):
+
+        if not event.is_directory:
+            self.process_file(event.src_path, "MODIFIED")
+
+
 if __name__ == "__main__":
-    event_handler = DLPHandler()
+
     observer = Observer()
-    observer.schedule(event_handler, WATCHED_FOLDER, recursive=True)
+    handler = DLPHandler()
+
+    observer.schedule(handler, WATCHED_FOLDER, recursive=True)
+
     observer.start()
 
-    print(f"Monitoring folder: {WATCHED_FOLDER}")
-    print(f"Quarantine folder (outside watched folder): {QUARANTINE_FOLDER}")
+    print("[DLP] Monitoring started...")
 
     try:
+
         while True:
             time.sleep(1)
+
     except KeyboardInterrupt:
         observer.stop()
 
