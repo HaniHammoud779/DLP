@@ -8,7 +8,7 @@ classifier = pipeline(
 
 def contains_value(text):
 
-    matches = re.findall(r"[:=]\s*(\S+)", text)
+    matches = re.findall(r"\b\S+\b", text)
 
     for value in matches:
 
@@ -39,16 +39,15 @@ def mask_sensitive_content(text):
 
     for line in text.splitlines():
 
-        if ":" in line or "=" in line:
+        if ":" in line or "=" in line or re.search(r"[A-Za-z].*\d", line):
 
             masked_line = re.sub(
-                r'([:=]\s*)(\S+)',
-                lambda m: m.group(1) + "*" * len(m.group(2)),
+                r'([A-Za-z0-9@#$%^&*!_+=-]{3,})',
+                lambda m: "*" * len(m.group(1)),
                 line
             )
 
-            if masked_line != line:
-                sensitive_lines.append(masked_line)
+            sensitive_lines.append(masked_line)
 
     return "\n".join(sensitive_lines)
 
@@ -83,10 +82,8 @@ def predict_file(file_path):
     confidence = float(result["scores"][0])
     score = int(confidence * 100)
 
-    if (
-        "confidential" in best_label.lower()
-        and contains_value(content)
-    ):
+    if contains_value(content):
+
         label = "SENSITIVE"
 
     elif (
