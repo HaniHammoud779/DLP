@@ -270,6 +270,46 @@ class UnifiedDLPHandler(FileSystemEventHandler):
         self.last_processed_content = {}
         self.recent_events = {}
         self.confirmed_files = set()
+        self.system_deleted_files = set()
+
+    def log_deletion_event(self, file_path):
+
+        if should_ignore_file(file_path):
+            return
+
+        if file_path in self.system_deleted_files:
+
+            self.system_deleted_files.discard(file_path)
+
+            return
+
+        filename = os.path.basename(file_path)
+
+        channel = detect_channel(file_path)
+
+        print(f"\n[{channel}] DELETED -> {filename}")
+        print("Classification: INFO")
+        print("Policy Action: DELETION_LOGGED")
+
+        session = SessionLocal()
+
+        event = FileEvent(
+            filename=filename,
+            action=f"{channel}_DELETED",
+            label="INFO",
+            score=0,
+            ml_prediction="NOT_SCANNED",
+            ml_confidence=0,
+            rule_score=0,
+            reason="File deletion event logged. No AI scan was performed because the file no longer exists.",
+            timestamp=datetime.now(timezone.utc)
+        )
+
+        session.add(event)
+
+        session.commit()
+
+        session.close()
 
     def process_file(self, file_path, action):
 
@@ -386,6 +426,8 @@ class UnifiedDLPHandler(FileSystemEventHandler):
 
             if policy_action == "QUARANTINE":
 
+                self.system_deleted_files.add(file_path)
+
                 quarantine_path, quarantine_filename = secure_quarantine_file(
                     file_path,
                     filename
@@ -408,6 +450,8 @@ class UnifiedDLPHandler(FileSystemEventHandler):
         elif channel == "NEXTCLOUD":
 
             if policy_action == "BLOCK":
+
+                self.system_deleted_files.add(file_path)
 
                 os.remove(file_path)
 
@@ -434,6 +478,8 @@ class UnifiedDLPHandler(FileSystemEventHandler):
 
             if policy_action == "BLOCK":
 
+                self.system_deleted_files.add(file_path)
+
                 os.remove(file_path)
 
                 print(f"[{channel}] Transfer BLOCKED.")
@@ -456,6 +502,8 @@ class UnifiedDLPHandler(FileSystemEventHandler):
                     print(f"[{channel}] Transfer CONFIRMED.")
 
                 else:
+
+                    self.system_deleted_files.add(file_path)
 
                     os.remove(file_path)
 
@@ -508,6 +556,12 @@ class UnifiedDLPHandler(FileSystemEventHandler):
         if not event.is_directory:
 
             self.process_file(event.src_path, "MODIFIED")
+
+    def on_deleted(self, event):
+
+        if not event.is_directory:
+
+            self.log_deletion_event(event.src_path)
 
 
 if __name__ == "__main__":
