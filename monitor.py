@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import shutil
 import smtplib
@@ -41,8 +42,12 @@ NEXTCLOUD_DATA_FOLDER = "/var/www/nextcloud/data"
 
 os.makedirs(WATCHED_FOLDER, exist_ok=True)
 os.makedirs(QUARANTINE_FOLDER, exist_ok=True)
-
 os.makedirs(USB_FOLDER, exist_ok=True)
+
+try:
+    os.chmod(QUARANTINE_FOLDER, 0o700)
+except Exception as e:
+    print(f"[QUARANTINE WARNING] Could not secure quarantine folder: {e}")
 
 init_db()
 
@@ -96,9 +101,124 @@ def rescan_nextcloud():
         print(f"[NEXTCLOUD RESCAN ERROR] {e}")
 
 
+def sanitize_filename(filename):
+
+    safe_name = re.sub(
+        r"[^A-Za-z0-9_.-]",
+        "_",
+        filename
+    )
+
+    if not safe_name:
+        safe_name = "quarantined_file"
+
+    return safe_name
+
+
+def secure_quarantine_file(file_path, original_filename):
+
+    os.makedirs(QUARANTINE_FOLDER, exist_ok=True)
+
+    try:
+        os.chmod(QUARANTINE_FOLDER, 0o700)
+    except Exception as e:
+        print(f"[QUARANTINE WARNING] Could not set folder permission: {e}")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    safe_original_name = sanitize_filename(original_filename)
+
+    quarantine_filename = (
+        f"QUARANTINED_{timestamp}_{safe_original_name}"
+    )
+
+    quarantine_path = os.path.join(
+        QUARANTINE_FOLDER,
+        quarantine_filename
+    )
+
+    counter = 1
+
+    while os.path.exists(quarantine_path):
+
+        quarantine_filename = (
+            f"QUARANTINED_{timestamp}_{counter}_{safe_original_name}"
+        )
+
+        quarantine_path = os.path.join(
+            QUARANTINE_FOLDER,
+            quarantine_filename
+        )
+
+        counter += 1
+
+    shutil.move(file_path, quarantine_path)
+
+    try:
+        os.chmod(quarantine_path, 0o600)
+    except Exception as e:
+        print(f"[QUARANTINE WARNING] Could not set file permission: {e}")
+
+    return quarantine_path, quarantine_filename
+
+
+def is_nextcloud_internal_file(file_path):
+
+    normalized_path = file_path.replace("\\", "/")
+
+    filename = os.path.basename(normalized_path)
+
+    filename_lower = filename.lower()
+
+    path_lower = normalized_path.lower()
+
+    if "/files_trashbin/" in path_lower:
+        return True
+
+    if "/files_versions/" in path_lower:
+        return True
+
+    if "/uploads/" in path_lower:
+        return True
+
+    if "/cache/" in path_lower:
+        return True
+
+    if "/appdata_" in path_lower:
+        return True
+
+    if filename_lower in ["nextcloud.log", "index.html"]:
+        return True
+
+    if filename.startswith("."):
+        return True
+
+    if filename_lower.endswith(".part"):
+        return True
+
+    if filename_lower.endswith(".tmp"):
+        return True
+
+    if "octransferid" in filename_lower:
+        return True
+
+    if re.search(r"\.d\d+$", filename_lower):
+        return True
+
+    if re.search(r"\.v\d+$", filename_lower):
+        return True
+
+    return False
+
+
 def should_ignore_file(file_path):
 
     filename = os.path.basename(file_path)
+
+    if file_path.startswith(NEXTCLOUD_DATA_FOLDER):
+
+        if is_nextcloud_internal_file(file_path):
+            return True
 
     if filename.endswith(".ignore"):
         return True
@@ -200,6 +320,9 @@ class UnifiedDLPHandler(FileSystemEventHandler):
 
         channel = detect_channel(file_path)
 
+        if channel == "NEXTCLOUD" and is_nextcloud_internal_file(file_path):
+            return
+
         if channel == "LOCAL_FOLDER":
 
             if self.last_processed_content.get(file_path) == content:
@@ -263,18 +386,23 @@ class UnifiedDLPHandler(FileSystemEventHandler):
 
             if policy_action == "QUARANTINE":
 
-                quarantine_path = os.path.join(
-                    QUARANTINE_FOLDER,
+                quarantine_path, quarantine_filename = secure_quarantine_file(
+                    file_path,
                     filename
                 )
 
-                shutil.move(file_path, quarantine_path)
-
-                print("[ACTION] moved to quarantine")
+                print("[ACTION] moved to secure quarantine")
+                print(f"[QUARANTINE] Stored as: {quarantine_filename}")
+                print("[QUARANTINE] Folder permission: 700")
+                print("[QUARANTINE] File permission: 600")
 
                 send_email(
                     "DLP Alert",
-                    f"Sensitive local file detected: {filename}"
+                    (
+                        f"Sensitive local file detected: {filename}\n"
+                        f"Stored securely in quarantine as: "
+                        f"{quarantine_filename}"
+                    )
                 )
 
         elif channel == "NEXTCLOUD":
