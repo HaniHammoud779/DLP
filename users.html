@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% set page_title = "User Management" %}
+{% set page_subtitle = "Admin-only role management." %}
+
+{% block content %}
+
+<div class="card">
+
+    <h2>Users and Roles</h2>
+
+    <div class="table-wrapper">
+
+        <table>
+
+            <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Corporate Email</th>
+                <th>SMTP Email</th>
+                <th>Current Role</th>
+                <th>Update Role</th>
+            </tr>
+
+            {% for user in users %}
+
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.email }}</td>
+                <td>{{ user.smtp_email }}</td>
+                <td>
+                    <span class="badge blue">{{ user.role }}</span>
+                </td>
+                <td>
+                    <form method="POST" action="{{ url_for('admin.update_role') }}" class="inline-form">
+
+                        <input type="hidden" name="user_id" value="{{ user.id }}">
+
+                        <select name="role">
+                            <option value="Employee" {% if user.role == "Employee" %}selected{% endif %}>Employee</option>
+                            <option value="Security Analyst" {% if user.role == "Security Analyst" %}selected{% endif %}>Security Analyst</option>
+                            <option value="Admin" {% if user.role == "Admin" %}selected{% endif %}>Admin</option>
+                        </select>
+
+                        <button type="submit">Update</button>
+
+                    </form>
+                </td>
+            </tr>
+
+            {% endfor %}
+
+        </table>
+
+    </div>
+
+</div>
+
+{% endblock %}

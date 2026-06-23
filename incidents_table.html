@@ -1,0 +1,65 @@
+<div class="table-wrapper">
+
+    <table>
+
+        <tr>
+            <th>Source</th>
+            <th>Channel</th>
+            <th>User / Sender</th>
+            <th>Target / Recipient</th>
+            <th>File / Item</th>
+            <th>Classification</th>
+            <th>Action</th>
+            <th>Confidence</th>
+            <th>Timestamp</th>
+        </tr>
+
+        {% for row in rows %}
+
+        <tr>
+            <td>
+                <span class="badge source-badge">
+                    {{ row.source }}
+                </span>
+            </td>
+
+            <td>{{ row.channel }}</td>
+
+            <td>{{ row.user }}</td>
+
+            <td>{{ row.target }}</td>
+
+            <td>{{ row.filename }}</td>
+
+            <td>
+                {% if row.classification == "SAFE" %}
+                    <span class="classification-badge classification-safe">
+                        SAFE
+                    </span>
+                {% elif row.classification == "MEDIUM" %}
+                    <span class="classification-badge classification-medium">
+                        MEDIUM
+                    </span>
+                {% elif row.classification == "SENSITIVE" %}
+                    <span class="classification-badge classification-sensitive">
+                        SENSITIVE
+                    </span>
+                {% else %}
+                    <span class="classification-badge classification-unknown">
+                        {{ row.classification }}
+                    </span>
+                {% endif %}
+            </td>
+
+            <td>{{ row.action }}</td>
+
+            <td>{{ row.confidence }}</td>
+
+            <td>{{ row.timestamp }}</td>
+        </tr>
+
+        {% endfor %}
+
+    </table>
+
+</div>

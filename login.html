@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block auth_content %}
+
+<div class="auth-wrapper">
+
+    <div class="auth-card">
+
+        <h1>Enterprise Mail DLP</h1>
+
+        <p class="muted">
+            Login to access the protected DLP platform.
+        </p>
+
+        <form method="POST">
+
+            <input type="text" name="username" placeholder="Username" required>
+
+            <input type="password" name="password" placeholder="Password" required>
+
+            <button type="submit">Login</button>
+
+        </form>
+
+        {% if message %}
+        <div class="alert-danger">{{ message }}</div>
+        {% endif %}
+
+        <p class="center-text">
+            No account?
+            <a href="{{ url_for('auth.register') }}">Register</a>
+        </p>
+
+    </div>
+
+</div>
+
+{% endblock %}

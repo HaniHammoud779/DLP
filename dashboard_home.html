@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% set page_title = "Central DLP Dashboard" %}
+{% set page_subtitle = "Unified visibility across Email, Local, FTP, SMB, Nextcloud, and USB channels." %}
+
+{% block content %}
+
+<div class="stats-row">
+
+    <div class="metric-card total">
+        <span>Total Incidents</span>
+        <strong>{{ stats.total }}</strong>
+    </div>
+
+    <div class="metric-card safe-card">
+        <span>Safe</span>
+        <strong>{{ stats.safe }}</strong>
+    </div>
+
+    <div class="metric-card medium-card">
+        <span>Medium</span>
+        <strong>{{ stats.medium }}</strong>
+    </div>
+
+    <div class="metric-card sensitive-card">
+        <span>Sensitive</span>
+        <strong>{{ stats.sensitive }}</strong>
+    </div>
+
+    <div class="metric-card blocked-card">
+        <span>Blocked / Quarantined</span>
+        <strong>{{ stats.blocked }}</strong>
+    </div>
+
+</div>
+
+<div class="channel-grid">
+
+    <a class="channel-card email-card" href="{{ url_for('dashboard.dashboard_email') }}">
+        <div class="channel-icon">✉</div>
+        <h3>Email DLP</h3>
+        <p>Body and attachment protection</p>
+        <strong>{{ channel_counts.email }} incidents</strong>
+    </a>
+
+    <a class="channel-card local-card" href="{{ url_for('dashboard.dashboard_local') }}">
+        <div class="channel-icon">💻</div>
+        <h3>Local Endpoint</h3>
+        <p>Watched folder and quarantine</p>
+        <strong>{{ channel_counts.local }} incidents</strong>
+    </a>
+
+    <a class="channel-card ftp-card" href="{{ url_for('dashboard.dashboard_ftp') }}">
+        <div class="channel-icon">⇅</div>
+        <h3>FTP</h3>
+        <p>Real FTP server uploads</p>
+        <strong>{{ channel_counts.ftp }} incidents</strong>
+    </a>
+
+    <a class="channel-card smb-card" href="{{ url_for('dashboard.dashboard_smb') }}">
+        <div class="channel-icon">☷</div>
+        <h3>SMB / Samba</h3>
+        <p>Network share protection</p>
+        <strong>{{ channel_counts.smb }} incidents</strong>
+    </a>
+
+    <a class="channel-card nextcloud-card" href="{{ url_for('dashboard.dashboard_nextcloud') }}">
+        <div class="channel-icon">☁</div>
+        <h3>Nextcloud</h3>
+        <p>Cloud collaboration uploads</p>
+        <strong>{{ channel_counts.nextcloud }} incidents</strong>
+    </a>
+
+    <a class="channel-card usb-card" href="{{ url_for('dashboard.dashboard_usb') }}">
+        <div class="channel-icon">▣</div>
+        <h3>USB</h3>
+        <p>Removable media protection</p>
+        <strong>{{ channel_counts.usb }} incidents</strong>
+    </a>
+
+</div>
+
+{% include "partials/analytics_charts.html" %}
+
+<div class="card">
+
+    <div class="section-header">
+        <div>
+            <h2>Latest Cross-Channel Incidents</h2>
+            <p>Use filters to search incidents across all protected channels.</p>
+        </div>
+
+        <a class="export-button" href="{{ url_for('dashboard.export_dashboard_home', q=filters.q, classification=filters.classification, action=filters.action, channel=filters.channel) }}">
+            Export CSV
+        </a>
+    </div>
+
+    {% set show_channel_filter = True %}
+    {% include "partials/dashboard_filters.html" %}
+
+    {% include "partials/incidents_table.html" %}
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,79 @@
+<div class="analytics-grid">
+
+    <div class="analytics-card">
+        <div class="chart-header">
+            <h3>Incidents by Classification</h3>
+            <p>SAFE, MEDIUM, and SENSITIVE distribution</p>
+        </div>
+
+        {% for item in analytics.classification %}
+        <div class="bar-row">
+            <div class="bar-label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+            </div>
+            <div class="bar-track">
+                <div class="bar-fill classification-bar-{{ item.label|lower }}" style="width: {{ item.percent }}%;"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="analytics-card">
+        <div class="chart-header">
+            <h3>Incidents by Channel</h3>
+            <p>Which channel generates the most DLP events</p>
+        </div>
+
+        {% for item in analytics.channel %}
+        <div class="bar-row">
+            <div class="bar-label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+            </div>
+            <div class="bar-track">
+                <div class="bar-fill channel-bar" style="width: {{ item.percent }}%;"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="analytics-card">
+        <div class="chart-header">
+            <h3>Actions Summary</h3>
+            <p>Allowed, pending, confirmed, blocked, deleted</p>
+        </div>
+
+        {% for item in analytics.action %}
+        <div class="bar-row">
+            <div class="bar-label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+            </div>
+            <div class="bar-track">
+                <div class="bar-fill action-bar" style="width: {{ item.percent }}%;"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="analytics-card">
+        <div class="chart-header">
+            <h3>Recent Activity Timeline</h3>
+            <p>Incident volume over recent days</p>
+        </div>
+
+        {% for item in analytics.timeline %}
+        <div class="bar-row">
+            <div class="bar-label">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+            </div>
+            <div class="bar-track">
+                <div class="bar-fill timeline-bar" style="width: {{ item.percent }}%;"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+</div>

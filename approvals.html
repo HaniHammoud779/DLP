@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% set page_title = "Medium File Approvals" %}
+{% set page_subtitle = "Review MEDIUM-risk file content before approving or deleting." %}
+
+{% block content %}
+
+<div class="approval-grid">
+
+    {% for item in pending %}
+
+    <div class="approval-card">
+
+        <div class="approval-header">
+            <span class="classification-badge classification-medium">
+                MEDIUM
+            </span>
+
+            <span class="approval-channel">
+                {{ item.channel }}
+            </span>
+        </div>
+
+        <h2>{{ item.filename }}</h2>
+
+        <p class="approval-path">
+            {{ item.file_path }}
+        </p>
+
+        <div class="approval-meta">
+            <div>
+                <span>Confidence</span>
+                <strong>{{ item.confidence }}</strong>
+            </div>
+
+            <div>
+                <span>Status</span>
+                <strong>{{ item.status }}</strong>
+            </div>
+
+            <div>
+                <span>Created</span>
+                <strong>{{ item.created_at }}</strong>
+            </div>
+        </div>
+
+        <div class="approval-warning">
+            This file was classified as MEDIUM risk. Click the preview button to review the content before deciding.
+        </div>
+
+        <details class="file-preview-details">
+            <summary>View File Content</summary>
+
+            <div class="file-preview-box">
+                <pre>{{ item.content_preview or "No preview stored for this file." }}</pre>
+            </div>
+        </details>
+
+        <div class="approval-actions">
+
+            <form method="POST" action="{{ url_for('approval.approve_file', approval_id=item.id) }}">
+                <button type="submit" class="approve-button">
+                    Approve Upload
+                </button>
+            </form>
+
+            <form method="POST" action="{{ url_for('approval.delete_file', approval_id=item.id) }}">
+                <button type="submit" class="danger-button">
+                    Delete File
+                </button>
+            </form>
+
+        </div>
+
+    </div>
+
+    {% else %}
+
+    <div class="card">
+        <h2>No Pending Medium Approvals</h2>
+        <p>There are currently no MEDIUM-risk files waiting for approval.</p>
+    </div>
+
+    {% endfor %}
+
+</div>
+
+<div class="card">
+
+    <div class="section-header">
+        <div>
+            <h2>Recent Approval Decisions</h2>
+            <p>Latest approval workflow records.</p>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>Channel</th>
+                <th>Filename</th>
+                <th>Status</th>
+                <th>Confidence</th>
+                <th>Created</th>
+                <th>Decided</th>
+            </tr>
+
+            {% for item in recent %}
+
+            <tr>
+                <td>{{ item.id }}</td>
+                <td>{{ item.channel }}</td>
+                <td>{{ item.filename }}</td>
+                <td>
+                    <span class="approval-status">
+                        {{ item.status }}
+                    </span>
+                </td>
+                <td>{{ item.confidence }}</td>
+                <td>{{ item.created_at }}</td>
+                <td>{{ item.decided_at }}</td>
+            </tr>
+
+            {% endfor %}
+        </table>
+
+    </div>
+
+</div>
+
+{% endblock %}

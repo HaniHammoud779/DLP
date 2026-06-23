@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title or "AI DLP Platform" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+
+<body>
+
+{% if current_user.is_authenticated %}
+
+<div class="layout">
+
+    <aside class="sidebar">
+
+        <div class="brand">
+            <div class="brand-icon">DLP</div>
+            <div>
+                <h2>AI DLP</h2>
+                <p>Enterprise Console</p>
+            </div>
+        </div>
+
+        <nav>
+
+            <a href="{{ url_for('email.compose') }}">
+                Compose Email
+            </a>
+
+            {% if current_user.role in ["Admin", "Security Analyst"] %}
+
+            <a href="{{ url_for('dashboard.dashboard_home') }}">
+                Dashboard
+            </a>
+
+            <a href="{{ url_for('approval.approvals') }}">
+                Medium Approvals
+            </a>
+
+            {% endif %}
+
+            {% if current_user.role == "Admin" %}
+
+            <a href="{{ url_for('admin.users') }}">
+                User Management
+            </a>
+
+            {% endif %}
+
+            <a href="{{ url_for('auth.logout') }}">
+                Logout
+            </a>
+
+        </nav>
+
+    </aside>
+
+    <main class="main">
+
+        <header class="topbar">
+
+            <div>
+                <h1>{{ page_title or "AI DLP Platform" }}</h1>
+                <p>{{ page_subtitle or "" }}</p>
+            </div>
+
+            <div class="user-pill">
+                {{ current_user.username }}
+                <span>{{ current_user.role }}</span>
+            </div>
+
+        </header>
+
+        {% block content %}{% endblock %}
+
+    </main>
+
+</div>
+
+{% else %}
+
+{% block auth_content %}{% endblock %}
+
+{% endif %}
+
+</body>
+</html>

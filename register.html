@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block auth_content %}
+
+<div class="auth-wrapper">
+
+    <div class="auth-card wide">
+
+        <h1>Create Corporate Account</h1>
+
+        <p class="muted">
+            Register a portal identity and connect a real Gmail sender account.
+        </p>
+
+        <form method="POST">
+
+            <input type="text" name="username" placeholder="Username" required>
+
+            <input type="email" name="email" placeholder="Corporate Email Identity" required>
+
+            <input type="password" name="password" placeholder="Portal Password" required>
+
+            <input type="email" name="smtp_email" placeholder="Real Gmail Address" required>
+
+            <input type="password" name="smtp_password" placeholder="Gmail App Password" required>
+
+            <button type="submit">Register</button>
+
+        </form>
+
+        {% if message %}
+        <div class="alert-danger">{{ message }}</div>
+        {% endif %}
+
+        <p class="center-text">
+            Already have an account?
+            <a href="{{ url_for('auth.login') }}">Login</a>
+        </p>
+
+    </div>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="stats-row">
+
+    <div class="metric-card total">
+        <span>Total Incidents</span>
+        <strong>{{ stats.total }}</strong>
+    </div>
+
+    <div class="metric-card safe-card">
+        <span>Safe</span>
+        <strong>{{ stats.safe }}</strong>
+    </div>
+
+    <div class="metric-card medium-card">
+        <span>Medium</span>
+        <strong>{{ stats.medium }}</strong>
+    </div>
+
+    <div class="metric-card sensitive-card">
+        <span>Sensitive</span>
+        <strong>{{ stats.sensitive }}</strong>
+    </div>
+
+    <div class="metric-card blocked-card">
+        <span>Blocked / Quarantined</span>
+        <strong>{{ stats.blocked }}</strong>
+    </div>
+
+</div>
+
+{% include "partials/analytics_charts.html" %}
+
+<div class="card">
+
+    <div class="section-header">
+        <div>
+            <h2>{{ page_title }}</h2>
+            <p>{{ page_subtitle }}</p>
+        </div>
+
+        <div class="section-actions">
+            <a class="secondary-link" href="{{ url_for('dashboard.dashboard_home') }}">
+                Back
+            </a>
+
+            {% if "Email" in page_title %}
+                <a class="export-button" href="{{ url_for('dashboard.export_dashboard_email', q=filters.q, classification=filters.classification, action=filters.action) }}">Export CSV</a>
+            {% elif "Local" in page_title %}
+                <a class="export-button" href="{{ url_for('dashboard.export_dashboard_local', q=filters.q, classification=filters.classification, action=filters.action) }}">Export CSV</a>
+            {% elif "FTP" in page_title %}
+                <a class="export-button" href="{{ url_for('dashboard.export_dashboard_ftp', q=filters.q, classification=filters.classification, action=filters.action) }}">Export CSV</a>
+            {% elif "SMB" in page_title %}
+                <a class="export-button" href="{{ url_for('dashboard.export_dashboard_smb', q=filters.q, classification=filters.classification, action=filters.action) }}">Export CSV</a>
+            {% elif "Nextcloud" in page_title %}
+                <a class="export-button" href="{{ url_for('dashboard.export_dashboard_nextcloud', q=filters.q, classification=filters.classification, action=filters.action) }}">Export CSV</a>
+            {% elif "USB" in page_title %}
+                <a class="export-button" href="{{ url_for('dashboard.export_dashboard_usb', q=filters.q, classification=filters.classification, action=filters.action) }}">Export CSV</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% set show_channel_filter = False %}
+    {% include "partials/dashboard_filters.html" %}
+
+    {% include "partials/incidents_table.html" %}
+
+</div>
+
+{% endblock %}

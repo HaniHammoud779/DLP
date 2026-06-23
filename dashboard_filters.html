@@ -1,0 +1,58 @@
+<form method="GET" class="filter-panel">
+
+    <div class="filter-field search-field">
+        <label>Search</label>
+        <input
+            type="text"
+            name="q"
+            placeholder="Search filename, sender, action..."
+            value="{{ filters.q }}"
+        >
+    </div>
+
+    <div class="filter-field">
+        <label>Classification</label>
+        <select name="classification">
+            <option value="" {% if filters.classification == "" %}selected{% endif %}>All</option>
+            <option value="SAFE" {% if filters.classification == "SAFE" %}selected{% endif %}>SAFE</option>
+            <option value="MEDIUM" {% if filters.classification == "MEDIUM" %}selected{% endif %}>MEDIUM</option>
+            <option value="SENSITIVE" {% if filters.classification == "SENSITIVE" %}selected{% endif %}>SENSITIVE</option>
+        </select>
+    </div>
+
+    <div class="filter-field">
+        <label>Action</label>
+        <select name="action">
+            <option value="" {% if filters.action == "" %}selected{% endif %}>All</option>
+            <option value="ALLOWED" {% if filters.action == "ALLOWED" %}selected{% endif %}>Allowed</option>
+            <option value="PENDING" {% if filters.action == "PENDING" %}selected{% endif %}>Pending</option>
+            <option value="CONFIRMED" {% if filters.action == "CONFIRMED" %}selected{% endif %}>Confirmed</option>
+            <option value="BLOCK" {% if filters.action == "BLOCK" %}selected{% endif %}>Blocked</option>
+            <option value="QUARANTINE" {% if filters.action == "QUARANTINE" %}selected{% endif %}>Quarantined</option>
+            <option value="DELETE" {% if filters.action == "DELETE" %}selected{% endif %}>Deleted</option>
+        </select>
+    </div>
+
+    {% if show_channel_filter %}
+
+    <div class="filter-field">
+        <label>Channel</label>
+        <select name="channel">
+            <option value="" {% if filters.channel == "" %}selected{% endif %}>All</option>
+            <option value="EMAIL" {% if filters.channel == "EMAIL" %}selected{% endif %}>Email</option>
+            <option value="LOCAL" {% if filters.channel == "LOCAL" %}selected{% endif %}>Local</option>
+            <option value="FTP" {% if filters.channel == "FTP" %}selected{% endif %}>FTP</option>
+            <option value="SMB" {% if filters.channel == "SMB" %}selected{% endif %}>SMB</option>
+            <option value="NEXTCLOUD" {% if filters.channel == "NEXTCLOUD" %}selected{% endif %}>Nextcloud</option>
+            <option value="USB" {% if filters.channel == "USB" %}selected{% endif %}>USB</option>
+        </select>
+    </div>
+
+    {% endif %}
+
+    <div class="filter-actions">
+        <button type="submit">Apply Filters</button>
+        <a href="{{ request.path }}" class="clear-filters">Clear</a>
+    </div>
+
+</form>

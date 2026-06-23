@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+
+{% set page_title = "Secure Email DLP" %}
+{% set page_subtitle = "Scan email body and multiple attachments before sending." %}
+
+{% block content %}
+
+<div class="card compose-card">
+
+    <h2>Compose Secure Email</h2>
+
+    <form method="POST" enctype="multipart/form-data" class="form-grid" id="emailForm">
+
+        <input type="email" name="to" placeholder="Recipient Email" required>
+
+        <input type="text" name="subject" placeholder="Subject" required>
+
+        <textarea name="message" rows="8" placeholder="Message"></textarea>
+
+        <div class="custom-upload-box">
+
+            <button type="button" class="custom-upload-button" id="chooseFilesButton">
+                Choose Attachments
+            </button>
+
+            <input type="file" id="attachmentsPicker" multiple hidden>
+
+            <input type="file" name="attachments" id="realAttachmentsInput" multiple hidden>
+
+            <p class="upload-help">
+                You can choose files one by one. Each selected file will be added to the list below.
+            </p>
+
+        </div>
+
+        <div class="selected-files-box">
+            <div class="selected-files-title">Selected Attachments</div>
+            <ul id="selectedFilesList">
+                <li class="no-files">No files selected.</li>
+            </ul>
+        </div>
+
+        <button type="submit">Scan and Send</button>
+
+    </form>
+
+</div>
+
+{% if result %}
+
+<div class="result-modern-card {{ css_class }}-result">
+
+    <div class="result-header">
+
+        <div>
+            <h2>DLP Scan Result</h2>
+            <p>Final decision is based on the highest-risk item among the email body and all attachments.</p>
+        </div>
+
+        <div class="result-final-badge {{ css_class }}-final">
+            {{ classification }}
+        </div>
+
+    </div>
+
+    <div class="result-summary-grid">
+
+        <div class="result-info-box">
+            <span>Sender</span>
+            <strong>{{ sender }}</strong>
+        </div>
+
+        <div class="result-info-box">
+            <span>Recipient</span>
+            <strong>{{ recipient }}</strong>
+        </div>
+
+        <div class="result-info-box">
+            <span>Final Classification</span>
+            <strong class="text-{{ css_class }}">{{ classification }}</strong>
+        </div>
+
+        <div class="result-info-box">
+            <span>Final Confidence</span>
+            <strong>{{ confidence }}</strong>
+        </div>
+
+    </div>
+
+    {% if scan_results %}
+
+    <div class="scan-table-wrapper">
+
+        <table class="scan-table">
+
+            <tr>
+                <th>Scanned Item</th>
+                <th>Classification</th>
+                <th>Confidence</th>
+            </tr>
+
+            {% for item in scan_results %}
+
+            <tr>
+                <td>
+                    <div class="scan-item-name">
+                        {{ item.name }}
+                    </div>
+                </td>
+
+                <td>
+                    {% if item.classification == "SAFE" %}
+                        <span class="dlp-pill pill-safe">SAFE</span>
+                    {% elif item.classification == "MEDIUM" %}
+                        <span class="dlp-pill pill-medium">MEDIUM</span>
+                    {% elif item.classification == "SENSITIVE" %}
+                        <span class="dlp-pill pill-sensitive">SENSITIVE</span>
+                    {% else %}
+                        <span class="dlp-pill pill-info">{{ item.classification }}</span>
+                    {% endif %}
+                </td>
+
+                <td>
+                    <span class="confidence-chip">
+                        {{ item.confidence }}
+                    </span>
+                </td>
+            </tr>
+
+            {% endfor %}
+
+        </table>
+
+    </div>
+
+    {% endif %}
+
+    {% if classification == "SAFE" %}
+
+    <div class="result-message success-message">
+        All scanned items are SAFE. Email and all attachments were sent successfully.
+    </div>
+
+    {% elif classification == "MEDIUM" %}
+
+        {% if confidence == "confirmed" %}
+
+        <div class="result-message success-message">
+            MEDIUM-risk content was detected. User confirmed the action. Email and attachments were sent successfully.
+        </div>
+
+        {% elif confidence == "expired" %}
+
+        <div class="result-message danger-message">
+            The confirmation session expired. Please scan the email again.
+        </div>
+
+        {% else %}
+
+        <div class="result-message warning-message">
+            At least one scanned item is MEDIUM risk and no scanned item is SENSITIVE. Please confirm sending or delete the email.
+        </div>
+
+        <div class="medium-action-row">
+
+            <form method="POST" action="{{ url_for('email.confirm_medium') }}">
+
+                <input type="hidden" name="to" value="{{ recipient }}">
+                <input type="hidden" name="subject" value="{{ subject }}">
+                <input type="hidden" name="message" value="{{ message }}">
+                <input type="hidden" name="temp_paths_json" value="{{ temp_paths_json }}">
+                <input type="hidden" name="filenames_json" value="{{ filenames_json }}">
+                <input type="hidden" name="confidence" value="{{ confidence }}">
+                <input type="hidden" name="scan_results_json" value='{{ scan_results_json }}'>
+
+                <button type="submit" class="approve-button">
+                    Confirm and Send
+                </button>
+
+            </form>
+
+            <form method="POST" action="{{ url_for('email.delete_medium') }}">
+
+                <input type="hidden" name="temp_paths_json" value="{{ temp_paths_json }}">
+                <input type="hidden" name="to" value="{{ recipient }}">
+                <input type="hidden" name="filenames_json" value="{{ filenames_json }}">
+                <input type="hidden" name="scan_results_json" value='{{ scan_results_json }}'>
+
+                <button type="submit" class="danger-button">
+                    Delete Email
+                </button>
+
+            </form>
+
+        </div>
+
+        {% endif %}
+
+    {% elif classification == "SENSITIVE" %}
+
+    <div class="result-message danger-message">
+        At least one scanned item is SENSITIVE. Email and all attachments were blocked by DLP policy.
+    </div>
+
+    {% endif %}
+
+</div>
+
+{% endif %}
+
+<script>
+    const chooseFilesButton = document.getElementById("chooseFilesButton");
+    const attachmentsPicker = document.getElementById("attachmentsPicker");
+    const realAttachmentsInput = document.getElementById("realAttachmentsInput");
+    const selectedFilesList = document.getElementById("selectedFilesList");
+    const emailForm = document.getElementById("emailForm");
+
+    let selectedFiles = [];
+
+    chooseFilesButton.addEventListener("click", function () {
+        attachmentsPicker.click();
+    });
+
+    attachmentsPicker.addEventListener("change", function () {
+        const newlyChosenFiles = Array.from(attachmentsPicker.files);
+
+        newlyChosenFiles.forEach(function (file) {
+            const exists = selectedFiles.some(function (existingFile) {
+                return (
+                    existingFile.name === file.name &&
+                    existingFile.size === file.size &&
+                    existingFile.lastModified === file.lastModified
+                );
+            });
+
+            if (!exists) {
+                selectedFiles.push(file);
+            }
+        });
+
+        attachmentsPicker.value = "";
+
+        syncRealInput();
+        renderSelectedFiles();
+    });
+
+    function syncRealInput() {
+        const dataTransfer = new DataTransfer();
+
+        selectedFiles.forEach(function (file) {
+            dataTransfer.items.add(file);
+        });
+
+        realAttachmentsInput.files = dataTransfer.files;
+    }
+
+    function renderSelectedFiles() {
+        selectedFilesList.innerHTML = "";
+
+        if (selectedFiles.length === 0) {
+            const emptyItem = document.createElement("li");
+            emptyItem.className = "no-files";
+            emptyItem.textContent = "No files selected.";
+            selectedFilesList.appendChild(emptyItem);
+            return;
+        }
+
+        selectedFiles.forEach(function (file, index) {
+            const item = document.createElement("li");
+            item.className = "selected-file-item";
+
+            const fileName = document.createElement("span");
+            fileName.textContent = file.name;
+
+            const removeButton = document.createElement("button");
+            removeButton.type = "button";
+            removeButton.className = "remove-file-button";
+            removeButton.textContent = "Remove";
+
+            removeButton.addEventListener("click", function () {
+                selectedFiles.splice(index, 1);
+                syncRealInput();
+                renderSelectedFiles();
+            });
+
+            item.appendChild(fileName);
+            item.appendChild(removeButton);
+
+            selectedFilesList.appendChild(item);
+        });
+    }
+
+    emailForm.addEventListener("submit", function () {
+        syncRealInput();
+    });
+</script>
+
+{% endblock %}
