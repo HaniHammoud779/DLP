@@ -7,7 +7,28 @@ classifier = pipeline(
 )
 
 
+def assignment_matches(text):
+
+    pattern = re.compile(
+        r"(?P<left>\b[A-Za-z_][A-Za-z0-9_\-]{2,40}\b)"
+        r"(?P<separator>\s*(?:is|=|:)\s*)"
+        r"(?P<quote>[\"']?)"
+        r"(?P<value>[A-Za-z0-9@#$%^&*!_+=\-./]{3,})"
+        r"(?P=quote)",
+        re.IGNORECASE
+    )
+
+    return list(pattern.finditer(text))
+
+
 def contains_value(text):
+
+    for match in assignment_matches(text):
+
+        value = match.group("value").strip().strip(".,!?;:'\"")
+
+        if looks_like_sensitive_value(value):
+            return True
 
     matches = re.findall(r"\b\S+\b", text)
 
@@ -43,7 +64,7 @@ def looks_like_sensitive_value(value):
 
     cleaned = value.strip().strip(".,!?;:'\"")
 
-    if len(cleaned) < 6:
+    if len(cleaned) < 4:
         return False
 
     has_letter = re.search(r"[A-Za-z]", cleaned) is not None
@@ -52,10 +73,15 @@ def looks_like_sensitive_value(value):
 
     has_special = re.search(r"[@#$%^&*!_+=\-./]", cleaned) is not None
 
-    if has_letter and has_digit:
+    is_numeric = cleaned.isdigit()
+
+    if is_numeric and len(cleaned) >= 6:
         return True
 
-    if has_special and len(cleaned) >= 8:
+    if has_letter and has_digit and len(cleaned) >= 6:
+        return True
+
+    if has_special and len(cleaned) >= 6:
         return True
 
     return False
@@ -64,15 +90,6 @@ def looks_like_sensitive_value(value):
 def mask_sensitive_content(text):
 
     sensitive_snippets = []
-
-    assignment_pattern = re.compile(
-        r"(?P<left>\b[A-Za-z_][A-Za-z0-9_\-]{2,40}\b)"
-        r"(?P<separator>\s*(?:is|=|:)\s*)"
-        r"(?P<quote>[\"']?)"
-        r"(?P<value>[A-Za-z0-9@#$%^&*!_+=\-./]{4,})"
-        r"(?P=quote)",
-        re.IGNORECASE
-    )
 
     standalone_value_pattern = re.compile(
         r"\b(?=[A-Za-z0-9@#$%^&*!_+=\-./]*[A-Za-z])"
@@ -87,11 +104,9 @@ def mask_sensitive_content(text):
         if not line:
             continue
 
-        assignment_matches = list(
-            assignment_pattern.finditer(line)
-        )
+        matches = assignment_matches(line)
 
-        for match in assignment_matches:
+        for match in matches:
 
             left = match.group("left")
             separator = match.group("separator")
@@ -110,7 +125,7 @@ def mask_sensitive_content(text):
 
                 sensitive_snippets.append(snippet)
 
-        if assignment_matches:
+        if matches:
             continue
 
         value_matches = standalone_value_pattern.findall(line)
