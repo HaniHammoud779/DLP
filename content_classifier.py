@@ -36,6 +36,15 @@ classifier = pipeline(
 )
 
 
+AI_SECRET_SENSITIVE_THRESHOLD = 0.55
+AI_SECRET_MEDIUM_THRESHOLD = 0.45
+AI_SECRET_MIN_MARGIN_OVER_SAFE = 0.03
+
+AI_SECRET_REFINEMENT_EXPOSED_STRONG_THRESHOLD = 0.70
+AI_SECRET_REFINEMENT_SENSITIVE_THRESHOLD = 0.55
+AI_SECRET_REFINEMENT_SAFE_THRESHOLD = 0.55
+AI_SECRET_REFINEMENT_MIN_MARGIN = 0.02
+
 AI_BUSINESS_SENSITIVE_THRESHOLD = 0.90
 AI_BUSINESS_MEDIUM_THRESHOLD = 0.80
 AI_MIN_MARGIN_OVER_SAFE = 0.12
@@ -64,6 +73,101 @@ GENERIC_SENSITIVE_LABEL = (
 GENERIC_SAFE_LABEL = (
     "This text is normal and harmless"
 )
+
+
+SECRET_PAYMENT_LABEL = (
+    "This text is about confidential payment card or financial payment data, "
+    "such as credit cards, debit cards, CVV, CVC, expiry dates, cardholder "
+    "payment details, customer billing card information, bank card data, or "
+    "customer payment information."
+)
+
+
+SECRET_CREDENTIAL_LABEL = (
+    "This text is about login credentials, passwords, usernames with passwords, "
+    "PINs, OTP codes, recovery codes, account access details, database "
+    "credentials, or private authentication information."
+)
+
+
+SECRET_TOKEN_LABEL = (
+    "This text is about API tokens, bearer tokens, access tokens, refresh "
+    "tokens, secret keys, private keys, authorization headers, session cookies, "
+    "cloud service keys, or technical authentication secrets."
+)
+
+
+SECRET_FINANCIAL_IDENTITY_LABEL = (
+    "This text is about sensitive financial, banking, account, payroll, tax, "
+    "customer account, or identity-related confidential data."
+)
+
+
+SECRET_SAFE_LABEL = (
+    "This text is harmless. It only discusses passwords, tokens, authentication, "
+    "payments, credit cards, banking, security policies, examples, placeholders, "
+    "templates, order numbers, tracking numbers, or public operational text in a "
+    "general way, without exposing actual usable secret values, payment details, "
+    "financial records, credentials, or private account data."
+)
+
+
+SECRET_SEMANTIC_LABELS = [
+    SECRET_PAYMENT_LABEL,
+    SECRET_CREDENTIAL_LABEL,
+    SECRET_TOKEN_LABEL,
+    SECRET_FINANCIAL_IDENTITY_LABEL,
+    SECRET_SAFE_LABEL
+]
+
+
+SECRET_REFINEMENT_EXPOSED_LABEL = (
+    "This text actually exposes usable sensitive data. It contains real-looking "
+    "payment card details, card number with CVV or expiry, usable password, "
+    "usable credential, usable API token, bearer token, secret key, private key, "
+    "bank account detail, financial account data, or private customer financial "
+    "record. The information could be copied and misused."
+)
+
+
+SECRET_REFINEMENT_POLICY_LABEL = (
+    "This text only gives a policy, warning, instruction, prevention rule, "
+    "security recommendation, or general discussion about passwords, tokens, "
+    "credit cards, payment gateways, banking, or sensitive data. It does not "
+    "reveal any actual usable secret, credential, token, card number, CVV, "
+    "expiry date, or private customer data."
+)
+
+
+SECRET_REFINEMENT_PLACEHOLDER_LABEL = (
+    "This text only contains placeholders, examples, templates, dummy values, "
+    "or instructions to replace a password, token, API key, or card number. "
+    "It does not reveal an actual usable secret or real customer payment data."
+)
+
+
+SECRET_REFINEMENT_ORDER_LABEL = (
+    "This text contains normal public order numbers, tracking numbers, reference "
+    "numbers, invoice numbers, or customer service identifiers. It does not "
+    "contain payment card details, CVV, expiry date, password, API token, or "
+    "usable secret data."
+)
+
+
+SECRET_REFINEMENT_PUBLIC_LABEL = (
+    "This text is normal public or harmless operational information. It does "
+    "not expose usable credentials, tokens, payment card data, financial data, "
+    "or private account information."
+)
+
+
+SECRET_REFINEMENT_LABELS = [
+    SECRET_REFINEMENT_EXPOSED_LABEL,
+    SECRET_REFINEMENT_POLICY_LABEL,
+    SECRET_REFINEMENT_PLACEHOLDER_LABEL,
+    SECRET_REFINEMENT_ORDER_LABEL,
+    SECRET_REFINEMENT_PUBLIC_LABEL
+]
 
 
 HEALTHCARE_LABEL = (
@@ -144,6 +248,52 @@ TEXT_EXTENSIONS = {
     ".py", ".java", ".cs", ".js", ".php", ".sql", ".env", ".conf",
     ".ini", ".yml", ".yaml", ".sh", ".bat", ".ps1", ".config"
 }
+
+
+PLACEHOLDER_WORDS = [
+    "your_password_here",
+    "your_api_key_here",
+    "replace_this_with_real_token",
+    "replace_with_real_token",
+    "replace_with_token",
+    "replace_me",
+    "changeme",
+    "change_me",
+    "example",
+    "sample",
+    "dummy",
+    "placeholder",
+    "template",
+    "insert_here",
+    "enter_password",
+    "enter_api_key",
+    "api_key_here",
+    "password_here",
+    "token_here",
+    "secret_here",
+    "xxxxx",
+    "xxxx",
+    "****",
+    "<password>",
+    "<api_key>",
+    "<token>",
+    "<secret>",
+    "null",
+    "none"
+]
+
+
+SAFE_IDENTIFIER_WORDS = [
+    "order",
+    "tracking",
+    "reference",
+    "invoice",
+    "ticket",
+    "receipt",
+    "shipment",
+    "delivery",
+    "booking"
+]
 
 
 class SimpleHTMLTextExtractor(HTMLParser):
@@ -405,18 +555,6 @@ def read_file_content(file_path):
 
 
 def has_reproducible_formula_detail(text):
-    """
-    General structure check.
-
-    This is not a restaurant keyword list.
-    It checks whether the document contains enough concrete, reproducible
-    detail to support the AI-sensitive decision.
-
-    It helps separate:
-    - "the sauce is delicious" -> not reproducible
-    - "50 ml water, 100 ml ketchup, mix 3 minutes" -> reproducible
-    """
-
     cleaned_text = text.strip()
 
     if not cleaned_text:
@@ -473,6 +611,37 @@ def has_reproducible_formula_detail(text):
     return detail_score >= 3
 
 
+def is_placeholder_value(value):
+
+    cleaned = value.strip().strip(".,!?;:'\"").lower()
+
+    if not cleaned:
+        return True
+
+    for placeholder in PLACEHOLDER_WORDS:
+        if placeholder.lower() in cleaned:
+            return True
+
+    if re.fullmatch(r"x{3,}", cleaned):
+        return True
+
+    if re.fullmatch(r"\*{3,}", cleaned):
+        return True
+
+    return False
+
+
+def left_side_is_safe_identifier(left):
+
+    cleaned = left.strip().lower()
+
+    for word in SAFE_IDENTIFIER_WORDS:
+        if word in cleaned:
+            return True
+
+    return False
+
+
 def assignment_matches(text):
 
     pattern = re.compile(
@@ -491,6 +660,9 @@ def looks_like_sensitive_value(value):
 
     cleaned = value.strip().strip(".,!?;:'\"")
 
+    if is_placeholder_value(cleaned):
+        return False
+
     if len(cleaned) < 4:
         return False
 
@@ -499,23 +671,75 @@ def looks_like_sensitive_value(value):
     has_special = re.search(r"[@#$%^&*!_+=\-./]", cleaned) is not None
     is_numeric = cleaned.isdigit()
 
-    if is_numeric and len(cleaned) >= 6:
-        return True
+    if is_numeric:
+        return False
 
     if has_letter and has_digit and len(cleaned) >= 6:
         return True
 
-    if has_special and len(cleaned) >= 6:
+    if has_special and len(cleaned) >= 6 and has_letter:
         return True
+
+    return False
+
+
+def contains_real_password_or_secret_assignment(text):
+
+    matches = assignment_matches(text)
+
+    for match in matches:
+
+        left = match.group("left").lower()
+        value = match.group("value").strip().strip(".,!?;:'\"")
+
+        if is_placeholder_value(value):
+            continue
+
+        if left_side_is_safe_identifier(left):
+            continue
+
+        secret_left_names = [
+            "password",
+            "passwd",
+            "pwd",
+            "api_key",
+            "apikey",
+            "api-token",
+            "api_token",
+            "token",
+            "access_token",
+            "refresh_token",
+            "secret",
+            "secret_key",
+            "private_key",
+            "auth_token",
+            "authorization",
+            "bearer"
+        ]
+
+        for name in secret_left_names:
+            if name in left:
+                if len(value) >= 4:
+                    return True
 
     return False
 
 
 def contains_value(text):
 
+    if contains_real_password_or_secret_assignment(text):
+        return True
+
     for match in assignment_matches(text):
 
+        left = match.group("left").strip()
         value = match.group("value").strip().strip(".,!?;:'\"")
+
+        if is_placeholder_value(value):
+            continue
+
+        if left_side_is_safe_identifier(left):
+            continue
 
         if looks_like_sensitive_value(value):
             return True
@@ -526,23 +750,100 @@ def contains_value(text):
 
         cleaned = value.strip().strip(".,!?;:'\"")
 
-        if cleaned.isalpha() and len(cleaned) < 8:
+        if is_placeholder_value(cleaned):
+            continue
+
+        if cleaned.isalpha():
+            continue
+
+        if cleaned.isdigit():
             continue
 
         if (
             re.search(r"[A-Za-z]", cleaned)
             and re.search(r"\d", cleaned)
-            and len(cleaned) >= 6
+            and len(cleaned) >= 12
         ):
             return True
 
         if (
             re.search(r"[@#$%^&*!_+=]", cleaned)
-            and len(cleaned) >= 6
+            and re.search(r"[A-Za-z]", cleaned)
+            and len(cleaned) >= 12
         ):
             return True
 
     return False
+
+
+def is_placeholder_template_document(text):
+
+    matches = assignment_matches(text)
+
+    if not matches:
+        return False
+
+    placeholder_count = 0
+    real_secret_count = 0
+
+    for match in matches:
+
+        left = match.group("left").lower()
+        value = match.group("value").strip().strip(".,!?;:'\"")
+
+        if (
+            "password" in left
+            or "api" in left
+            or "key" in left
+            or "token" in left
+            or "secret" in left
+        ):
+            if is_placeholder_value(value):
+                placeholder_count += 1
+            else:
+                real_secret_count += 1
+
+    return placeholder_count > 0 and real_secret_count == 0
+
+
+def is_clear_order_or_tracking_document(text):
+
+    lower_text = text.lower()
+
+    if not any(word in lower_text for word in SAFE_IDENTIFIER_WORDS):
+        return False
+
+    if any(
+        word in lower_text
+        for word in [
+            "cvv",
+            "cvc",
+            "expiry",
+            "expiration",
+            "valid thru",
+            "credit card",
+            "debit card",
+            "cardholder",
+            "payment card",
+            "password",
+            "api_token",
+            "api key",
+            "bearer"
+        ]
+    ):
+        if (
+            "does not include cvv" in lower_text
+            or "does not contain cvv" in lower_text
+            or "no cvv" in lower_text
+            or "does not include" in lower_text
+            or "does not contain" in lower_text
+            or "no customer card" in lower_text
+        ):
+            return True
+
+        return False
+
+    return True
 
 
 def mask_word(value):
@@ -576,7 +877,13 @@ def mask_sensitive_content(text):
             quote = match.group("quote")
             value = match.group("value")
 
-            if looks_like_sensitive_value(value):
+            if is_placeholder_value(value):
+                continue
+
+            if left_side_is_safe_identifier(left):
+                continue
+
+            if looks_like_sensitive_value(value) or contains_real_password_or_secret_assignment(line):
 
                 snippet = (
                     mask_word(left)
@@ -594,6 +901,9 @@ def mask_sensitive_content(text):
         value_matches = standalone_value_pattern.findall(line)
 
         for value in value_matches:
+
+            if is_placeholder_value(value):
+                continue
 
             if looks_like_sensitive_value(value):
 
@@ -617,6 +927,122 @@ def mask_sensitive_content(text):
             unique_snippets.append(snippet)
 
     return "\n".join(unique_snippets)
+
+
+def run_secret_ai_analysis(content):
+
+    try:
+
+        result = classifier(
+            content,
+            SECRET_SEMANTIC_LABELS,
+            hypothesis_template="{}",
+            truncation=True
+        )
+
+    except Exception as e:
+
+        return {
+            "best_label": SECRET_SAFE_LABEL,
+            "best_score": 0,
+            "safe_score": 1,
+            "margin_over_safe": 0,
+            "error": str(e)
+        }
+
+    labels = result["labels"]
+    scores = result["scores"]
+
+    best_label = labels[0]
+    best_score = float(scores[0])
+
+    safe_score = 0
+
+    for label, score in zip(labels, scores):
+
+        if label == SECRET_SAFE_LABEL:
+            safe_score = float(score)
+            break
+
+    margin_over_safe = best_score - safe_score
+
+    return {
+        "best_label": best_label,
+        "best_score": best_score,
+        "safe_score": safe_score,
+        "margin_over_safe": margin_over_safe,
+        "error": ""
+    }
+
+
+def run_secret_refinement_ai_analysis(content):
+
+    try:
+
+        result = classifier(
+            content,
+            SECRET_REFINEMENT_LABELS,
+            hypothesis_template="{}",
+            truncation=True
+        )
+
+    except Exception as e:
+
+        return {
+            "best_label": SECRET_REFINEMENT_PUBLIC_LABEL,
+            "best_score": 0,
+            "second_score": 0,
+            "margin": 0,
+            "error": str(e)
+        }
+
+    labels = result["labels"]
+    scores = result["scores"]
+
+    best_label = labels[0]
+    best_score = float(scores[0])
+
+    second_score = 0
+
+    if len(scores) > 1:
+        second_score = float(scores[1])
+
+    margin = best_score - second_score
+
+    return {
+        "best_label": best_label,
+        "best_score": best_score,
+        "second_score": second_score,
+        "margin": margin,
+        "error": ""
+    }
+
+
+def get_secret_reason(best_secret_label):
+
+    if best_secret_label == SECRET_PAYMENT_LABEL:
+        return (
+            "AI semantic analysis detected payment-card or financial-payment "
+            "context."
+        )
+
+    if best_secret_label == SECRET_CREDENTIAL_LABEL:
+        return (
+            "AI semantic analysis detected credential or account-access context."
+        )
+
+    if best_secret_label == SECRET_TOKEN_LABEL:
+        return (
+            "AI semantic analysis detected technical-secret or token context."
+        )
+
+    if best_secret_label == SECRET_FINANCIAL_IDENTITY_LABEL:
+        return (
+            "AI semantic analysis detected financial, banking, account, payroll, "
+            "tax, customer-account, or identity-related context."
+        )
+
+    return ""
 
 
 def run_generic_ai_analysis(content):
@@ -783,6 +1209,246 @@ def predict_file(file_path):
             "extraction_status": "NO_TEXT_EXTRACTED"
         }
 
+    if is_placeholder_template_document(content):
+
+        return "SAFE", 0, [], content, {
+            "ml_prediction": "SAFE",
+            "ml_confidence": 0.99,
+            "ml_score": 99,
+            "rule_score": 0,
+            "reason": (
+                "The document contains placeholder/template secret fields only. "
+                "No actual usable password, token, API key, or credential value "
+                "was exposed."
+            ),
+            "secret_ai_label": "",
+            "secret_ai_score": 0,
+            "secret_safe_score": 1,
+            "secret_margin_over_safe": 0,
+            "secret_refinement_label": SECRET_REFINEMENT_PLACEHOLDER_LABEL,
+            "secret_refinement_score": 1,
+            "secret_refinement_margin": 1,
+            "generic_ai_label": "",
+            "generic_ai_score": 0,
+            "business_ai_label": "",
+            "business_ai_score": 0,
+            "business_safe_score": 0,
+            "business_margin_over_safe": 0,
+            "restaurant_refinement_label": "",
+            "restaurant_refinement_score": 0,
+            "restaurant_refinement_margin": 0,
+            "reproducible_formula_detail": False,
+            "file_extension": file_extension,
+            "extraction_status": "TEXT_EXTRACTED"
+        }
+
+    if is_clear_order_or_tracking_document(content):
+
+        return "SAFE", 0, [], content, {
+            "ml_prediction": "SAFE",
+            "ml_confidence": 0.99,
+            "ml_score": 99,
+            "rule_score": 0,
+            "reason": (
+                "The document contains an order/tracking/reference number or "
+                "public operational identifier. It does not expose usable "
+                "payment card data, credentials, tokens, or private account data."
+            ),
+            "secret_ai_label": "",
+            "secret_ai_score": 0,
+            "secret_safe_score": 1,
+            "secret_margin_over_safe": 0,
+            "secret_refinement_label": SECRET_REFINEMENT_ORDER_LABEL,
+            "secret_refinement_score": 1,
+            "secret_refinement_margin": 1,
+            "generic_ai_label": "",
+            "generic_ai_score": 0,
+            "business_ai_label": "",
+            "business_ai_score": 0,
+            "business_safe_score": 0,
+            "business_margin_over_safe": 0,
+            "restaurant_refinement_label": "",
+            "restaurant_refinement_score": 0,
+            "restaurant_refinement_margin": 0,
+            "reproducible_formula_detail": False,
+            "file_extension": file_extension,
+            "extraction_status": "TEXT_EXTRACTED"
+        }
+
+    if contains_real_password_or_secret_assignment(content):
+
+        final_confidence = 0.99
+        final_score = int(final_confidence * 100)
+        masked_content = mask_sensitive_content(content)
+
+        return "SENSITIVE", final_score, [], content, {
+            "ml_prediction": "SENSITIVE",
+            "ml_confidence": round(final_confidence, 2),
+            "ml_score": final_score,
+            "rule_score": 100,
+            "reason": (
+                "Usable credential or technical secret assignment detected ->\n"
+                f"{masked_content}"
+            ),
+            "secret_ai_label": SECRET_CREDENTIAL_LABEL,
+            "secret_ai_score": 0.99,
+            "secret_safe_score": 0,
+            "secret_margin_over_safe": 0.99,
+            "secret_refinement_label": SECRET_REFINEMENT_EXPOSED_LABEL,
+            "secret_refinement_score": 0.99,
+            "secret_refinement_margin": 0.99,
+            "generic_ai_label": "",
+            "generic_ai_score": 0,
+            "business_ai_label": "",
+            "business_ai_score": 0,
+            "business_safe_score": 0,
+            "business_margin_over_safe": 0,
+            "restaurant_refinement_label": "",
+            "restaurant_refinement_score": 0,
+            "restaurant_refinement_margin": 0,
+            "reproducible_formula_detail": False,
+            "file_extension": file_extension,
+            "extraction_status": "TEXT_EXTRACTED"
+        }
+
+    secret_result = run_secret_ai_analysis(content)
+
+    secret_label = secret_result["best_label"]
+    secret_score = secret_result["best_score"]
+    secret_safe_score = secret_result["safe_score"]
+    secret_margin = secret_result["margin_over_safe"]
+
+    secret_refinement_label = ""
+    secret_refinement_score = 0
+    secret_refinement_margin = 0
+
+    secret_sensitive_labels = [
+        SECRET_PAYMENT_LABEL,
+        SECRET_CREDENTIAL_LABEL,
+        SECRET_TOKEN_LABEL,
+        SECRET_FINANCIAL_IDENTITY_LABEL
+    ]
+
+    if secret_label in secret_sensitive_labels:
+
+        secret_refinement = run_secret_refinement_ai_analysis(content)
+
+        secret_refinement_label = secret_refinement["best_label"]
+        secret_refinement_score = secret_refinement["best_score"]
+        secret_refinement_margin = secret_refinement["margin"]
+
+        secret_reason = get_secret_reason(secret_label)
+
+        if (
+            secret_refinement_label in [
+                SECRET_REFINEMENT_POLICY_LABEL,
+                SECRET_REFINEMENT_PLACEHOLDER_LABEL,
+                SECRET_REFINEMENT_ORDER_LABEL,
+                SECRET_REFINEMENT_PUBLIC_LABEL
+            ]
+            and secret_refinement_score >= AI_SECRET_REFINEMENT_SAFE_THRESHOLD
+        ):
+
+            pass
+
+        elif (
+            secret_refinement_label == SECRET_REFINEMENT_EXPOSED_LABEL
+            and (
+                secret_refinement_score >= AI_SECRET_REFINEMENT_EXPOSED_STRONG_THRESHOLD
+                or secret_score >= AI_SECRET_REFINEMENT_EXPOSED_STRONG_THRESHOLD
+                or (
+                    secret_refinement_score >= AI_SECRET_REFINEMENT_SENSITIVE_THRESHOLD
+                    and secret_refinement_margin >= AI_SECRET_REFINEMENT_MIN_MARGIN
+                )
+            )
+        ):
+
+            final_confidence = max(secret_score, secret_refinement_score, 0.61)
+            final_score = int(final_confidence * 100)
+
+            masked_content = mask_sensitive_content(content)
+
+            explanation = {
+                "ml_prediction": "SENSITIVE",
+                "ml_confidence": round(final_confidence, 2),
+                "ml_score": final_score,
+                "rule_score": 0,
+                "reason": (
+                    secret_reason
+                    + "\n"
+                    + "Focused AI secret-data analysis confirmed that the "
+                    + "text exposes actual usable sensitive data, not only a "
+                    + "policy, warning, placeholder, order number, or general discussion."
+                    + "\n"
+                    + masked_content
+                ),
+                "secret_ai_label": secret_label,
+                "secret_ai_score": round(secret_score, 2),
+                "secret_safe_score": round(secret_safe_score, 2),
+                "secret_margin_over_safe": round(secret_margin, 2),
+                "secret_refinement_label": secret_refinement_label,
+                "secret_refinement_score": round(secret_refinement_score, 2),
+                "secret_refinement_margin": round(secret_refinement_margin, 2),
+                "generic_ai_label": "",
+                "generic_ai_score": 0,
+                "business_ai_label": "",
+                "business_ai_score": 0,
+                "business_safe_score": 0,
+                "business_margin_over_safe": 0,
+                "restaurant_refinement_label": "",
+                "restaurant_refinement_score": 0,
+                "restaurant_refinement_margin": 0,
+                "reproducible_formula_detail": False,
+                "file_extension": file_extension,
+                "extraction_status": "TEXT_EXTRACTED"
+            }
+
+            return "SENSITIVE", final_score, [], content, explanation
+
+        elif (
+            secret_score >= AI_SECRET_MEDIUM_THRESHOLD
+            and secret_margin > 0
+            and secret_refinement_label == SECRET_REFINEMENT_EXPOSED_LABEL
+        ):
+
+            final_confidence = max(secret_score, secret_refinement_score, 0.51)
+            final_score = int(final_confidence * 100)
+
+            explanation = {
+                "ml_prediction": "MEDIUM",
+                "ml_confidence": round(final_confidence, 2),
+                "ml_score": final_score,
+                "rule_score": 0,
+                "reason": (
+                    secret_reason
+                    + "\n"
+                    + "AI secret-data layer detected possible exposed "
+                    + "sensitive data, but confidence was not strong enough "
+                    + "for automatic blocking."
+                ),
+                "secret_ai_label": secret_label,
+                "secret_ai_score": round(secret_score, 2),
+                "secret_safe_score": round(secret_safe_score, 2),
+                "secret_margin_over_safe": round(secret_margin, 2),
+                "secret_refinement_label": secret_refinement_label,
+                "secret_refinement_score": round(secret_refinement_score, 2),
+                "secret_refinement_margin": round(secret_refinement_margin, 2),
+                "generic_ai_label": "",
+                "generic_ai_score": 0,
+                "business_ai_label": "",
+                "business_ai_score": 0,
+                "business_safe_score": 0,
+                "business_margin_over_safe": 0,
+                "restaurant_refinement_label": "",
+                "restaurant_refinement_score": 0,
+                "restaurant_refinement_margin": 0,
+                "reproducible_formula_detail": False,
+                "file_extension": file_extension,
+                "extraction_status": "TEXT_EXTRACTED"
+            }
+
+            return "MEDIUM", final_score, [], content, explanation
+
     if contains_value(content):
 
         final_confidence = 0.99
@@ -796,8 +1462,17 @@ def predict_file(file_path):
             "ml_score": final_score,
             "rule_score": 100,
             "reason": f"Sensitive data detected ->\n{masked_content}",
+            "secret_ai_label": secret_label,
+            "secret_ai_score": round(secret_score, 2),
+            "secret_safe_score": round(secret_safe_score, 2),
+            "secret_margin_over_safe": round(secret_margin, 2),
+            "secret_refinement_label": secret_refinement_label,
+            "secret_refinement_score": round(secret_refinement_score, 2),
+            "secret_refinement_margin": round(secret_refinement_margin, 2),
             "generic_ai_label": "",
+            "generic_ai_score": 0,
             "business_ai_label": "",
+            "business_ai_score": 0,
             "business_safe_score": 0,
             "business_margin_over_safe": 0,
             "restaurant_refinement_label": "",
@@ -829,7 +1504,7 @@ def predict_file(file_path):
     reproducible_formula_detail = has_reproducible_formula_detail(content)
 
     final_label = "SAFE"
-    final_confidence = max(generic_score, business_score)
+    final_confidence = max(generic_score, business_score, secret_safe_score)
     final_score = int(final_confidence * 100)
     rule_score = 0
     reason_text = ""
@@ -1002,6 +1677,13 @@ def predict_file(file_path):
         "ml_score": final_score,
         "rule_score": rule_score,
         "reason": reason_text,
+        "secret_ai_label": secret_label,
+        "secret_ai_score": round(secret_score, 2),
+        "secret_safe_score": round(secret_safe_score, 2),
+        "secret_margin_over_safe": round(secret_margin, 2),
+        "secret_refinement_label": secret_refinement_label,
+        "secret_refinement_score": round(secret_refinement_score, 2),
+        "secret_refinement_margin": round(secret_refinement_margin, 2),
         "generic_ai_label": generic_label,
         "generic_ai_score": round(generic_score, 2),
         "business_ai_label": business_label,
