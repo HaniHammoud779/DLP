@@ -174,6 +174,13 @@ SOFTWARE_LABEL = (
     "for public release."
 )
 
+CLOTHING_LABEL = (
+    "This text contains confidential clothing retail business information, such as "
+    "private customer records, supplier agreements, wholesale prices, purchase costs, "
+    "discount negotiations, inventory information, internal pricing strategies, "
+    "unreleased fashion collections, or confidential retail operations."
+)
+
 BUSINESS_SAFE_LABEL = (
     "This text is normal, harmless, public, personal, casual, or operational. It does "
     "not reveal private healthcare data, confidential business data, proprietary "
@@ -184,6 +191,7 @@ BUSINESS_SEMANTIC_LABELS = [
     HEALTHCARE_LABEL,
     RESTAURANT_LABEL,
     SOFTWARE_LABEL,
+    CLOTHING_LABEL,
     BUSINESS_SAFE_LABEL
 ]
 
@@ -2439,6 +2447,13 @@ def get_business_reason(best_business_label):
             "design, architecture details, or unreleased technical plans."
         )
 
+    if best_business_label == CLOTHING_LABEL:
+        return (
+            "AI semantic analysis detected confidential clothing retail information, "
+            "such as private customer records, supplier details, wholesale prices, "
+            "purchase costs, discounts, inventory, or unreleased fashion plans."
+        )
+
     return ""
 
 
@@ -3624,6 +3639,12 @@ def get_baseline_business_domain(
     ):
         return "SOFTWARE_TECHNOLOGY"
 
+    if (
+        business_label == CLOTHING_LABEL
+        and business_score >= 0.55
+    ):
+        return "RETAIL_COMMERCE"
+
     return "NONE"
 
 
@@ -4501,6 +4522,30 @@ def predict_file(file_path):
                     "not reveal enough concrete formula or food-production details "
                     "to reproduce an internal menu item."
                 )
+
+    elif business_label == CLOTHING_LABEL:
+
+        if (
+            business_score >= BUSINESS_SENSITIVE_THRESHOLD
+            and business_margin >= BUSINESS_MIN_MARGIN
+        ):
+
+            final_label = "SENSITIVE"
+            rule_score = 90
+            reason_text = get_business_reason(business_label)
+
+        elif (
+            business_score >= BUSINESS_MEDIUM_THRESHOLD
+            and business_margin >= BUSINESS_MEDIUM_MIN_MARGIN
+        ):
+
+            final_label = "MEDIUM"
+            rule_score = 50
+            reason_text = (
+                get_business_reason(business_label)
+                + " Confidence was not high enough for automatic blocking, "
+                + "so the content is marked for review."
+            )
 
     elif business_label == SOFTWARE_LABEL:
 
