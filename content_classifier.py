@@ -3899,6 +3899,55 @@ def enforce_in_scope_business_classification(
             return result
 
     if (
+        organization_domain == "RETAIL_COMMERCE"
+        and baseline_content_domain == "RETAIL_COMMERCE"
+        and business_label == CLOTHING_LABEL
+        and business_score >= 0.70
+        and business_margin >= 0.08
+    ):
+        result.update(
+            {
+                "classification": "SENSITIVE",
+                "best_score": max(
+                    0.95,
+                    float(business_score or 0)
+                ),
+                "margin": max(
+                    0.15,
+                    float(business_margin or 0)
+                ),
+                "scope_classification": "IN_SCOPE",
+                "scope_score": max(
+                    float(
+                        organization_domain_result.get(
+                            "score",
+                            0
+                        )
+                    ),
+                    float(business_score or 0)
+                ),
+                "scope_margin": max(
+                    float(
+                        organization_domain_result.get(
+                            "margin",
+                            0
+                        )
+                    ),
+                    float(business_margin or 0)
+                ),
+                "matched_section": (
+                    "The active organization and the document both belong "
+                    "to the retail-clothing domain, and confidential retail "
+                    "business information such as supplier pricing, purchase "
+                    "costs, discounts, customer records, inventory, or internal "
+                    "pricing information was detected."
+                )
+            }
+        )
+
+        return result
+
+    if (
         organization_domain == "SOFTWARE_TECHNOLOGY"
         and baseline_content_domain == "SOFTWARE_TECHNOLOGY"
         and business_label == SOFTWARE_LABEL
