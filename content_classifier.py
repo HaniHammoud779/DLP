@@ -2922,10 +2922,22 @@ def run_organization_policy_ai_analysis(
         "NONE"
     )
 
+    # Scope alignment should consider the complete customer policy.
+    # The scope section defines the organization, while sensitive and
+    # medium sections define protected business information that belongs
+    # to that organization.
+    policy_scope_alignment_text = " ".join(
+        [
+            scope_text,
+            sensitive_text,
+            medium_text
+        ]
+    ).strip()
+
     direct_scope_result = run_direct_scope_alignment_analysis(
         clean_content,
         organization_name,
-        scope_text,
+        policy_scope_alignment_text,
         outside_scope_text
     )
 
@@ -2968,9 +2980,72 @@ def run_organization_policy_ai_analysis(
         ) >= 0.42
     )
 
+    # If the document domain matches the organization domain, do not allow
+    # a generic direct scope classifier to incorrectly mark the content as
+    # outside the organization. The detailed policy sections decide the
+    # final SAFE/MEDIUM/SENSITIVE level afterwards.
+    same_business_domain = (
+        organization_domain in recognized_domains
+        and content_domain in recognized_domains
+        and organization_domain == content_domain
+    )
+
+    if same_business_domain:
+        strong_direct_outside_scope = False
+
+    policy_protection_result = run_zero_shot(
+        clean_content,
+        [
+            (
+                "This content matches the active organization's protected "
+                "sensitive or medium information described in the policy: "
+                f"{sensitive_text} {medium_text}"
+            ),
+            (
+                "This content does not match the organization's protected "
+                "information categories."
+            )
+        ]
+    )
+
+    policy_protection_score = float(
+        policy_protection_result.get(
+            "scores",
+            [0]
+        )[0]
+    )
+
+    strong_policy_match = (
+        policy_protection_score >= 0.65
+        and (
+            organization_domain == content_domain
+            or organization_domain == "NONE"
+            or content_domain == "NONE"
+        )
+    )
+
+    # A clear organization-domain match should prevent an incorrect
+    # scope rejection. The customer's own policy should control content
+    # inside its business domain.
+    organization_policy_domain_match = (
+        organization_domain != "NONE"
+        and content_domain != "NONE"
+        and organization_domain == content_domain
+        and strong_policy_match
+    )
+
+    # Do not allow the generic scope classifier to reject content when the
+    # organization and the document are already identified as the same business
+    # domain. The organization policy should decide the risk level (SAFE/MEDIUM/
+    # SENSITIVE) inside its own domain. This prevents restaurant documents such
+    # as internal recipe notes from becoming OUT_OF_SCOPE because the text does
+    # not contain the exact scope wording.
     strong_direct_outside_scope = (
         direct_scope_classification == "OUT_OF_SCOPE"
         and direct_scope_score >= 0.52
+        and not same_business_domain
+        and not organization_policy_domain_match
+        and not strong_policy_match
     )
 
     # A document is outside scope when either:
@@ -3319,6 +3394,13 @@ def apply_organization_policy_result(
         policy_result.get("classification", "NONE")
     ).upper()
 
+    policy_scope_classification = str(
+        policy_result.get(
+            "scope_classification",
+            "NONE"
+        )
+    ).upper()
+
     policy_score = float(
         policy_result.get("best_score", 0)
     )
@@ -3326,6 +3408,13 @@ def apply_organization_policy_result(
     policy_margin = float(
         policy_result.get("margin", 0)
     )
+
+    policy_scope_classification = str(
+        policy_result.get(
+            "scope_classification",
+            "NONE"
+        )
+    ).upper()
 
     # Mandatory baseline detections cannot be weakened by a custom policy.
     # Examples include confirmed passwords, credentials, API keys, tokens,
@@ -3339,14 +3428,48 @@ def apply_organization_policy_result(
             False
         )
 
+    if (
+        policy_scope_classification == "OUT_OF_SCOPE"
+        and not mandatory_protection_triggered
+        and not (
+            policy_result.get("organization_domain")
+            == policy_result.get("content_domain")
+            and policy_classification in {
+                "MEDIUM",
+                "SENSITIVE"
+            }
+        )
+    ):
+        policy_classification = "OUT_OF_SCOPE"
+
+    # Organization custom business policies apply only to content
+    # inside the organization's scope. If the scope analysis already
+    # determined that the content belongs to another domain, do not allow
+    # generic MEDIUM/SENSITIVE policy matches to override that decision.
+    if (
+        policy_scope_classification == "OUT_OF_SCOPE"
+        and not mandatory_protection_triggered
+    ):
+        policy_classification = "OUT_OF_SCOPE"
+
     if policy_classification == "OUT_OF_SCOPE":
+
+        # Prevent a false scope rejection from deleting a stronger baseline
+        # classification. Organization scope is an additional control layer,
+        # not a replacement for the specialized business classifiers.
+        if final_label in {"MEDIUM", "SENSITIVE"}:
+            return (
+                final_label,
+                final_confidence,
+                final_rule_score,
+                final_reason,
+                False
+            )
 
         organization_name = (
             policy_record.get("organization_name")
             or "the organization"
         )
-
-        previous_label = final_label
 
         final_label = "SAFE"
         final_confidence = max(
@@ -3360,13 +3483,6 @@ def apply_organization_policy_result(
             "No mandatory sensitive information was detected, so the "
             "organization-specific business classification is SAFE."
         )
-
-        if previous_label != final_label:
-            final_reason += (
-                f" The baseline classification was {previous_label}, but "
-                "organization scope takes precedence for customizable "
-                "business information."
-            )
 
         return (
             final_label,
@@ -3899,55 +4015,6 @@ def enforce_in_scope_business_classification(
             return result
 
     if (
-        organization_domain == "RETAIL_COMMERCE"
-        and baseline_content_domain == "RETAIL_COMMERCE"
-        and business_label == CLOTHING_LABEL
-        and business_score >= 0.70
-        and business_margin >= 0.08
-    ):
-        result.update(
-            {
-                "classification": "SENSITIVE",
-                "best_score": max(
-                    0.95,
-                    float(business_score or 0)
-                ),
-                "margin": max(
-                    0.15,
-                    float(business_margin or 0)
-                ),
-                "scope_classification": "IN_SCOPE",
-                "scope_score": max(
-                    float(
-                        organization_domain_result.get(
-                            "score",
-                            0
-                        )
-                    ),
-                    float(business_score or 0)
-                ),
-                "scope_margin": max(
-                    float(
-                        organization_domain_result.get(
-                            "margin",
-                            0
-                        )
-                    ),
-                    float(business_margin or 0)
-                ),
-                "matched_section": (
-                    "The active organization and the document both belong "
-                    "to the retail-clothing domain, and confidential retail "
-                    "business information such as supplier pricing, purchase "
-                    "costs, discounts, customer records, inventory, or internal "
-                    "pricing information was detected."
-                )
-            }
-        )
-
-        return result
-
-    if (
         organization_domain == "SOFTWARE_TECHNOLOGY"
         and baseline_content_domain == "SOFTWARE_TECHNOLOGY"
         and business_label == SOFTWARE_LABEL
@@ -4001,6 +4068,99 @@ def enforce_in_scope_business_classification(
         )
 
         return result
+
+    if (
+        organization_domain == "RETAIL_COMMERCE"
+        and baseline_content_domain == "RETAIL_COMMERCE"
+        and business_label == CLOTHING_LABEL
+    ):
+        if (
+            business_score >= BUSINESS_SENSITIVE_THRESHOLD
+            and business_margin >= BUSINESS_MIN_MARGIN
+        ):
+            result.update(
+                {
+                    "classification": "SENSITIVE",
+                    "best_score": max(
+                        0.95,
+                        float(business_score or 0)
+                    ),
+                    "margin": max(
+                        0.15,
+                        float(business_margin or 0)
+                    ),
+                    "scope_classification": "IN_SCOPE",
+                    "scope_score": max(
+                        float(
+                            organization_domain_result.get(
+                                "score",
+                                0
+                            )
+                        ),
+                        float(business_score or 0)
+                    ),
+                    "scope_margin": max(
+                        float(
+                            organization_domain_result.get(
+                                "margin",
+                                0
+                            )
+                        ),
+                        float(business_margin or 0)
+                    ),
+                    "matched_section": (
+                        "The active organization and the document both belong "
+                        "to the retail/clothing domain, and confidential clothing "
+                        "business information was detected."
+                    )
+                }
+            )
+
+            return result
+
+        elif (
+            business_score >= BUSINESS_MEDIUM_THRESHOLD
+            and business_margin >= BUSINESS_MEDIUM_MIN_MARGIN
+        ):
+            result.update(
+                {
+                    "classification": "MEDIUM",
+                    "best_score": max(
+                        0.90,
+                        float(business_score or 0)
+                    ),
+                    "margin": max(
+                        0.12,
+                        float(business_margin or 0)
+                    ),
+                    "scope_classification": "IN_SCOPE",
+                    "scope_score": max(
+                        float(
+                            organization_domain_result.get(
+                                "score",
+                                0
+                            )
+                        ),
+                        float(business_score or 0)
+                    ),
+                    "scope_margin": max(
+                        float(
+                            organization_domain_result.get(
+                                "margin",
+                                0
+                            )
+                        ),
+                        float(business_margin or 0)
+                    ),
+                    "matched_section": (
+                        "The active organization and the document both belong "
+                        "to the retail/clothing domain, and possible confidential "
+                        "retail information requires administrator review."
+                    )
+                }
+            )
+
+            return result
 
     if (
         organization_domain == "HEALTHCARE"
