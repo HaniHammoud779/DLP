@@ -175,10 +175,13 @@ SOFTWARE_LABEL = (
 )
 
 CLOTHING_LABEL = (
-    "This text contains confidential clothing retail business information, such as "
-    "private customer records, supplier agreements, wholesale prices, purchase costs, "
-    "discount negotiations, inventory information, internal pricing strategies, "
-    "unreleased fashion collections, or confidential retail operations."
+    "This text contains confidential and restricted clothing company information, "
+    "such as private supplier contracts, negotiated wholesale agreements, purchase "
+    "costs, private discount arrangements, unreleased fashion designs, confidential "
+    "future collections, internal manufacturing details, restricted inventory reports, "
+    "private customer records, employee records, or non-public business strategies. "
+    "Public product descriptions, public prices, advertisements, store information, "
+    "and general fashion content are not confidential information."
 )
 
 BUSINESS_SAFE_LABEL = (
@@ -224,22 +227,25 @@ HEALTHCARE_REFINEMENT_LABELS = [
 
 
 RESTAURANT_REFINEMENT_SENSITIVE_LABEL = (
-    "This text clearly reveals enough concrete restaurant food-production information "
-    "to reproduce a menu item or internal recipe. It includes concrete formula details "
-    "such as quantities, measurements, preparation steps, mixing instructions, timing, "
-    "storage conditions, or a complete repeatable method."
+    "This document contains confidential restaurant intellectual property "
+    "that exposes a reproducible recipe or food production formula. "
+    "A person could recreate the restaurant product because the document "
+    "contains private ingredient quantities, exact measurements, preparation "
+    "steps, production methods, or a complete internal formula."
 )
 
 RESTAURANT_REFINEMENT_PUBLIC_LABEL = (
-    "This text only mentions, describes, praises, reviews, or discusses food, a recipe, "
-    "a sauce, a burger, a taste, or a menu item. It does not reveal enough concrete "
-    "formula details to reproduce the item."
+    "This document contains public restaurant information. "
+    "It may describe food products, menu items, dishes, prices, reviews, "
+    "advertisements, or customer-facing information, but it does not expose "
+    "confidential internal production details or a reproducible recipe."
 )
 
 RESTAURANT_REFINEMENT_OPERATIONAL_LABEL = (
-    "This text is normal restaurant operational information, such as opening hours, "
-    "customer service, daily activity, public menu availability, or staff scheduling. "
-    "It does not reveal internal food-production formula details."
+    "This document contains normal restaurant operational information. "
+    "It may include opening hours, reservations, customer service, daily "
+    "activities, general staff information, or business communication. "
+    "It does not reveal confidential food formulas or production methods."
 )
 
 RESTAURANT_REFINEMENT_LABELS = [
@@ -2404,7 +2410,46 @@ def run_healthcare_refinement_ai_analysis(content):
 
 def run_restaurant_refinement_ai_analysis(content):
 
-    result = run_zero_shot(content, RESTAURANT_REFINEMENT_LABELS)
+    analysis_prompt = f"""
+You are a strict restaurant data leakage prevention classifier.
+
+Analyze the document below.
+
+Classify as SENSITIVE only when the document reveals enough private
+information to reproduce a restaurant product, such as:
+
+- exact recipe formulas
+- ingredient quantities or measurements
+- preparation procedures
+- cooking methods
+- private sauce or seasoning formulas
+- repeatable internal food production steps
+
+Do NOT classify as SENSITIVE for:
+
+- public menus
+- restaurant names
+- opening hours
+- public food descriptions
+- advertisements
+- public prices
+- reservation information
+- general cooking advice
+
+Classify as MEDIUM when the content appears to contain internal
+restaurant information but lacks enough details to reproduce the product.
+
+Document:
+
+{content}
+"""
+
+
+    result = run_zero_shot(
+        analysis_prompt,
+        RESTAURANT_REFINEMENT_LABELS
+    )
+
 
     labels = result["labels"]
     scores = result["scores"]
@@ -2416,6 +2461,7 @@ def run_restaurant_refinement_ai_analysis(content):
 
     if len(scores) > 1:
         second_score = float(scores[1])
+
 
     return {
         "best_label": best_label,
@@ -3222,50 +3268,48 @@ def run_organization_policy_ai_analysis(
     if sensitive_text:
 
         sensitive_label = (
-            "According to the active organization policy, this content "
-            "matches the SENSITIVE category: "
-            f"{sensitive_text}"
+            "This content contains information that the organization "
+            "explicitly defines as sensitive. It exposes confidential "
+            "business information, private records, protected formulas, "
+            "internal procedures, or other restricted information. "
+            "Public descriptions, advertisements, opening hours, menus, "
+            "or general information must not be classified as sensitive. "
+            f"Sensitive policy definition: {sensitive_text}"
         )
 
-        labels.append(
-            sensitive_label
-        )
+        labels.append(sensitive_label)
 
-        label_to_classification[
-            sensitive_label
-        ] = "SENSITIVE"
+        label_to_classification[sensitive_label] = "SENSITIVE"
+
 
     if medium_text:
 
         medium_label = (
-            "According to the active organization policy, this content "
-            "matches the MEDIUM category and requires review: "
-            f"{medium_text}"
+            "This content matches the organization's medium-risk category. "
+            "It contains incomplete internal information that requires "
+            "security review but does not fully expose protected sensitive "
+            "information. "
+            f"Medium policy definition: {medium_text}"
         )
 
-        labels.append(
-            medium_label
-        )
+        labels.append(medium_label)
 
-        label_to_classification[
-            medium_label
-        ] = "MEDIUM"
+        label_to_classification[medium_label] = "MEDIUM"
+
 
     if safe_text:
 
         safe_label = (
-            "According to the active organization policy, this content "
-            "matches the SAFE or public category: "
-            f"{safe_text}"
+            "This content is allowed by the organization policy. "
+            "It represents public information, normal communication, "
+            "general descriptions, advertisements, public services, "
+            "or information that does not expose confidential business data. "
+            f"Safe policy definition: {safe_text}"
         )
 
-        labels.append(
-            safe_label
-        )
+        labels.append(safe_label)
 
-        label_to_classification[
-            safe_label
-        ] = "SAFE"
+        label_to_classification[safe_label] = "SAFE"
 
     if not labels:
         return {
@@ -3339,13 +3383,49 @@ def run_organization_policy_ai_analysis(
         else 0.0
     )
 
+
+    classification_result = label_to_classification.get(
+        best_label,
+        "NONE"
+    )
+
+
+    classification_margin = (
+        best_score - second_score
+    )
+
+
+    #
+    # Prevent uncertain zero-shot predictions from
+    # automatically becoming SENSITIVE.
+    #
+    # Sensitive decisions require stronger confidence.
+    #
+
+    if (
+        classification_result == "SENSITIVE"
+        and (
+            best_score < 0.80
+            or classification_margin < 0.20
+        )
+    ):
+
+        for label in returned_labels:
+
+            if (
+                label_to_classification.get(label)
+                == "SAFE"
+            ):
+
+                best_label = label
+                classification_result = "SAFE"
+                break
+
+
     return {
-        "classification": label_to_classification.get(
-            best_label,
-            "NONE"
-        ),
+        "classification": classification_result,
         "best_score": best_score,
-        "margin": best_score - second_score,
+        "margin": classification_margin,
         "scope_classification": scope_classification,
         "scope_score": scope_score,
         "scope_margin": scope_margin,
