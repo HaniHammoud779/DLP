@@ -3043,26 +3043,53 @@ def run_organization_policy_ai_analysis(
         clean_content,
         [
             (
-                "This content matches the active organization's protected "
-                "sensitive or medium information described in the policy: "
-                f"{sensitive_text} {medium_text}"
+                "This content matches the active organization's sensitive "
+                "information categories described in the policy: "
+                f"{sensitive_text}"
             ),
             (
-                "This content does not match the organization's protected "
-                "information categories."
+                "This content matches the active organization's medium-risk "
+                "information categories described in the policy: "
+                f"{medium_text}"
+            ),
+            (
+                "This content matches the active organization's safe public "
+                "information categories described in the policy: "
+                f"{safe_text}"
             )
         ]
     )
 
+    policy_scores = policy_protection_result.get(
+        "scores",
+        [0, 0, 0]
+    )
+
+    policy_labels = [
+        "SENSITIVE",
+        "MEDIUM",
+        "SAFE"
+    ]
+
+    best_policy_index = max(
+        range(len(policy_scores)),
+        key=lambda index: policy_scores[index]
+    )
+
+    policy_protection_classification = policy_labels[
+        best_policy_index
+    ]
+
     policy_protection_score = float(
-        policy_protection_result.get(
-            "scores",
-            [0]
-        )[0]
+        policy_scores[best_policy_index]
     )
 
     strong_policy_match = (
-        policy_protection_score >= 0.65
+        policy_protection_classification in [
+            "SENSITIVE",
+            "MEDIUM"
+        ]
+        and policy_protection_score >= 0.65
         and (
             organization_domain == content_domain
             or organization_domain == "NONE"
@@ -3920,6 +3947,20 @@ def enforce_in_scope_business_classification(
         business_score,
         business_margin
     )
+
+    # Correct generic business-classifier mistakes using the active
+    # organization domain. The organization policy should have priority
+    # when the generic classifier selects an unrelated industry.
+    if (
+        organization_domain == "RETAIL_COMMERCE"
+        and business_label in [
+            RESTAURANT_LABEL,
+            SOFTWARE_LABEL,
+            HEALTHCARE_LABEL
+        ]
+    ):
+        baseline_content_domain = "RETAIL_COMMERCE"
+        business_label = CLOTHING_LABEL
 
     # When the active organization and the content belong to the same
     # recognized business domain, strong baseline evidence must not be
@@ -4914,6 +4955,43 @@ def predict_file(file_path):
         final_label = "SAFE"
         rule_score = 0
         reason_text = build_safe_content_reason(content)
+
+    # Align generic business AI with the active organization domain
+    # before running the organization policy classifier. This prevents
+    # unrelated industry predictions from contaminating customer policy
+    # decisions.
+    policy_sections_for_domain = parse_organization_policy_sections(
+        organization_policy.get(
+            "policy_prompt",
+            ""
+        )
+    )
+
+    policy_scope_for_domain = join_policy_section(
+        policy_sections_for_domain.get(
+            "scope",
+            []
+        )
+    )
+
+    active_org_domain_result = run_organization_domain_analysis(
+        policy_scope_for_domain
+    )
+
+    active_org_domain = active_org_domain_result.get(
+        "domain",
+        "NONE"
+    )
+
+    if (
+        active_org_domain == "RETAIL_COMMERCE"
+        and business_label in [
+            RESTAURANT_LABEL,
+            SOFTWARE_LABEL,
+            HEALTHCARE_LABEL
+        ]
+    ):
+        business_label = CLOTHING_LABEL
 
     organization_policy_result = (
         run_organization_policy_ai_analysis(
