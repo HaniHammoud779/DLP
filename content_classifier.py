@@ -3366,6 +3366,7 @@ def classification_risk_value(label):
     return 1
 
 
+
 def apply_organization_policy_result(
     current_label,
     current_confidence,
@@ -3381,7 +3382,9 @@ def apply_organization_policy_result(
     final_rule_score = int(current_rule_score or 0)
     final_reason = str(current_reason or "").strip()
 
+
     if not policy_record.get("is_active"):
+
         return (
             final_label,
             final_confidence,
@@ -3389,10 +3392,15 @@ def apply_organization_policy_result(
             final_reason,
             False
         )
+
 
     policy_classification = str(
-        policy_result.get("classification", "NONE")
+        policy_result.get(
+            "classification",
+            "NONE"
+        )
     ).upper()
+
 
     policy_scope_classification = str(
         policy_result.get(
@@ -3400,26 +3408,18 @@ def apply_organization_policy_result(
             "NONE"
         )
     ).upper()
+
 
     policy_score = float(
-        policy_result.get("best_score", 0)
-    )
-
-    policy_margin = float(
-        policy_result.get("margin", 0)
-    )
-
-    policy_scope_classification = str(
         policy_result.get(
-            "scope_classification",
-            "NONE"
+            "best_score",
+            0
         )
-    ).upper()
+    )
 
-    # Mandatory baseline detections cannot be weakened by a custom policy.
-    # Examples include confirmed passwords, credentials, API keys, tokens,
-    # payment-card data, PII, and concrete private medical information.
+
     if mandatory_protection_triggered:
+
         return (
             final_label,
             final_confidence,
@@ -3428,188 +3428,92 @@ def apply_organization_policy_result(
             False
         )
 
-    if (
-        policy_scope_classification == "OUT_OF_SCOPE"
-        and not mandatory_protection_triggered
-        and not (
-            policy_result.get("organization_domain")
-            == policy_result.get("content_domain")
-            and policy_classification in {
-                "MEDIUM",
-                "SENSITIVE"
-            }
-        )
-    ):
-        policy_classification = "OUT_OF_SCOPE"
 
-    # Organization custom business policies apply only to content
-    # inside the organization's scope. If the scope analysis already
-    # determined that the content belongs to another domain, do not allow
-    # generic MEDIUM/SENSITIVE policy matches to override that decision.
-    if (
-        policy_scope_classification == "OUT_OF_SCOPE"
-        and not mandatory_protection_triggered
-    ):
-        policy_classification = "OUT_OF_SCOPE"
-
-    if policy_classification == "OUT_OF_SCOPE":
-
-        # Prevent a false scope rejection from deleting a stronger baseline
-        # classification. Organization scope is an additional control layer,
-        # not a replacement for the specialized business classifiers.
-        if final_label in {"MEDIUM", "SENSITIVE"}:
-            return (
-                final_label,
-                final_confidence,
-                final_rule_score,
-                final_reason,
-                False
-            )
-
-        organization_name = (
-            policy_record.get("organization_name")
-            or "the organization"
-        )
-
-        final_label = "SAFE"
-        final_confidence = max(
-            final_confidence,
-            policy_score
-        )
-        final_rule_score = 0
-        final_reason = (
-            f"The content belongs to a different industry or domain and is "
-            f"outside {organization_name}'s active protected business scope. "
-            "No mandatory sensitive information was detected, so the "
-            "organization-specific business classification is SAFE."
-        )
+    if policy_scope_classification == "OUT_OF_SCOPE":
 
         return (
-            final_label,
-            final_confidence,
-            final_rule_score,
-            final_reason,
+            "SAFE",
+            max(
+                final_confidence,
+                0.95
+            ),
+            0,
+            (
+                "Content is outside the protected "
+                "organization scope. Sensitive information "
+                "belonging to another industry is not "
+                "protected by this organization policy."
+            ),
             True
         )
 
-    # Do not let the custom policy downgrade a strong in-scope baseline
-    # business classification from SENSITIVE to MEDIUM. Cross-domain
-    # content is already converted to OUT_OF_SCOPE before this function.
-    #
-    # Example:
-    # - Kitchen policy + reproducible restaurant recipe:
-    #   baseline SENSITIVE must remain SENSITIVE.
-    # - Hospital policy + restaurant recipe:
-    #   scope enforcement changes the policy result to OUT_OF_SCOPE,
-    #   so it still becomes SAFE.
-    if (
-        final_label == "SENSITIVE"
-        and policy_classification == "MEDIUM"
-        and str(
-            policy_result.get(
-                "scope_classification",
-                "NONE"
-            )
-        ).upper() != "OUT_OF_SCOPE"
-    ):
-        organization_name = (
-            policy_record.get("organization_name")
-            or "the organization"
-        )
 
-        final_confidence = max(
-            final_confidence,
-            policy_score
-        )
-
-        final_rule_score = max(
-            final_rule_score,
-            88
-        )
-
-        final_reason = (
-            f"The active policy for {organization_name} considered the content "
-            "MEDIUM, but the established in-scope business classifier detected "
-            "strong SENSITIVE evidence. The system preserves the higher-risk "
-            "classification so a strongly confidential in-scope document is not "
-            "downgraded before administrator review."
-        )
+    if policy_classification == "SENSITIVE":
 
         return (
             "SENSITIVE",
-            final_confidence,
-            final_rule_score,
-            final_reason,
+            max(
+                final_confidence,
+                policy_score
+            ),
+            max(
+                final_rule_score,
+                80
+            ),
+            (
+                "Customer organization policy "
+                "classified this content as sensitive."
+            ),
             True
         )
 
-    required_score = {
-        "SENSITIVE": ORGANIZATION_POLICY_SENSITIVE_THRESHOLD,
-        "MEDIUM": ORGANIZATION_POLICY_MEDIUM_THRESHOLD,
-        "SAFE": ORGANIZATION_POLICY_SAFE_THRESHOLD
-    }.get(policy_classification)
 
-    if (
-        required_score is None
-        or policy_score < required_score
-        or policy_margin < ORGANIZATION_POLICY_MIN_MARGIN
-    ):
+    if policy_classification == "MEDIUM":
+
         return (
-            final_label,
-            final_confidence,
-            final_rule_score,
-            final_reason,
-            False
+            "MEDIUM",
+            max(
+                final_confidence,
+                policy_score
+            ),
+            max(
+                final_rule_score,
+                50
+            ),
+            (
+                "Customer organization policy "
+                "classified this content as medium risk "
+                "and requires review."
+            ),
+            True
         )
 
-    previous_label = final_label
 
-    # For organization-controlled business information, the active policy
-    # may classify content as SAFE, MEDIUM, or SENSITIVE.
-    final_label = policy_classification
-    final_confidence = max(
-        final_confidence,
-        policy_score
-    )
+    if policy_classification == "SAFE":
 
-    if final_label == "SENSITIVE":
-        final_rule_score = max(
-            final_rule_score,
-            88
+        return (
+            "SAFE",
+            max(
+                final_confidence,
+                policy_score
+            ),
+            0,
+            (
+                "Customer organization policy "
+                "classified this content as safe."
+            ),
+            True
         )
-    elif final_label == "MEDIUM":
-        final_rule_score = 48
-    else:
-        final_rule_score = 0
 
-    organization_name = (
-        policy_record.get("organization_name")
-        or "the organization"
-    )
-
-    final_reason = (
-        f"The active custom policy for {organization_name} classified this "
-        f"content as {final_label}. The policy may override customizable "
-        "business classifications such as recipes, internal procedures, "
-        "supplier information, software intellectual property, manufacturing "
-        "formulas, and other organization-defined information. Mandatory "
-        "protections for passwords, credentials, API keys, access tokens, "
-        "private keys, payment data, PII, and concrete private medical records "
-        "cannot be reduced by the custom policy."
-    )
-
-    if previous_label != final_label:
-        final_reason += (
-            f" The baseline classification was {previous_label}."
-        )
 
     return (
         final_label,
         final_confidence,
         final_rule_score,
         final_reason,
-        True
+        False
     )
+
 
 def build_explanation(
     final_label,
@@ -4013,6 +3917,51 @@ def enforce_in_scope_business_classification(
             )
 
             return result
+
+
+    # Additional handling for restaurant MEDIUM information:
+    # internal restaurant documents that are in the correct business domain
+    # but do not expose a reproducible formula should remain IN_SCOPE and
+    # require administrator review.
+    if (
+        organization_domain == "FOOD_HOSPITALITY"
+        and baseline_content_domain == "FOOD_HOSPITALITY"
+        and business_label == RESTAURANT_LABEL
+        and not reproducible_formula_detail
+        and business_score >= BUSINESS_MEDIUM_THRESHOLD
+        and business_margin >= BUSINESS_MEDIUM_MIN_MARGIN
+    ):
+        result.update(
+            {
+                "classification": "MEDIUM",
+                "best_score": max(
+                    0.90,
+                    float(business_score or 0)
+                ),
+                "margin": max(
+                    0.12,
+                    float(business_margin or 0)
+                ),
+                "scope_classification": "IN_SCOPE",
+                "scope_score": max(
+                    float(organization_domain_result.get("score", 0)),
+                    float(business_score or 0)
+                ),
+                "scope_margin": max(
+                    float(organization_domain_result.get("margin", 0)),
+                    float(business_margin or 0)
+                ),
+                "matched_section": (
+                    "The active organization and the document both belong "
+                    "to the food-service domain. The document contains "
+                    "internal restaurant information requiring administrator "
+                    "review, but it does not contain enough concrete formula "
+                    "details for automatic blocking."
+                )
+            }
+        )
+
+        return result
 
     if (
         organization_domain == "SOFTWARE_TECHNOLOGY"
