@@ -4310,6 +4310,8 @@ def predict_file(file_path):
 
     file_extension = os.path.splitext(file_path)[1].lower()
 
+    organization_policy = get_active_organization_policy()
+
     if not content.strip():
 
         explanation = {
@@ -4912,8 +4914,6 @@ def predict_file(file_path):
         final_label = "SAFE"
         rule_score = 0
         reason_text = build_safe_content_reason(content)
-
-    organization_policy = get_active_organization_policy()
 
     organization_policy_result = (
         run_organization_policy_ai_analysis(
