@@ -3289,56 +3289,75 @@ def run_organization_policy_ai_analysis(
             "matched_section": outside_scope_text
         }
 
-    labels = []
-    label_to_classification = {}
+    #
+    # Evaluate every customer-policy category independently.
+    #
+    # The previous implementation used one multi-class softmax decision.
+    # Because SAFE, MEDIUM, and SENSITIVE policy sections can contain
+    # overlapping business vocabulary, the model was forced to choose one
+    # category even when another section was a better semantic match.
+    #
+    # Independent binary checks allow the model to evaluate the actual
+    # meaning of each customer-defined section without using keyword lists.
+    #
+
+    policy_candidates = []
 
     if sensitive_text:
-
-        sensitive_label = (
-            "This content contains information that the organization "
-            "explicitly defines as sensitive. It exposes confidential "
-            "business information, private records, protected formulas, "
-            "internal procedures, or other restricted information. "
-            "Public descriptions, advertisements, opening hours, menus, "
-            "or general information must not be classified as sensitive. "
-            f"Sensitive policy definition: {sensitive_text}"
+        policy_candidates.append(
+            {
+                "classification": "SENSITIVE",
+                "section": sensitive_text,
+                "positive_label": (
+                    "The document clearly matches this organization's "
+                    "SENSITIVE policy definition and exposes the protected "
+                    "information described here: "
+                    f"{sensitive_text}"
+                ),
+                "negative_label": (
+                    "The document does not expose the protected sensitive "
+                    "information described in this policy section."
+                )
+            }
         )
-
-        labels.append(sensitive_label)
-
-        label_to_classification[sensitive_label] = "SENSITIVE"
-
 
     if medium_text:
-
-        medium_label = (
-            "This content matches the organization's medium-risk category. "
-            "It contains incomplete internal information that requires "
-            "security review but does not fully expose protected sensitive "
-            "information. "
-            f"Medium policy definition: {medium_text}"
+        policy_candidates.append(
+            {
+                "classification": "MEDIUM",
+                "section": medium_text,
+                "positive_label": (
+                    "The document clearly matches this organization's "
+                    "MEDIUM policy definition. It is incomplete, ambiguous, "
+                    "internal, or requires security review as described here: "
+                    f"{medium_text}"
+                ),
+                "negative_label": (
+                    "The document does not match the incomplete or ambiguous "
+                    "medium-risk information described in this policy section."
+                )
+            }
         )
-
-        labels.append(medium_label)
-
-        label_to_classification[medium_label] = "MEDIUM"
-
 
     if safe_text:
-
-        safe_label = (
-            "This content is allowed by the organization policy. "
-            "It represents public information, normal communication, "
-            "general descriptions, advertisements, public services, "
-            "or information that does not expose confidential business data. "
-            f"Safe policy definition: {safe_text}"
+        policy_candidates.append(
+            {
+                "classification": "SAFE",
+                "section": safe_text,
+                "positive_label": (
+                    "The document clearly matches this organization's SAFE "
+                    "policy definition. It is public, permitted, ordinary, "
+                    "or customer-facing information described here: "
+                    f"{safe_text}"
+                ),
+                "negative_label": (
+                    "The document does not match the public or permitted "
+                    "information described in this safe policy section."
+                )
+            }
         )
 
-        labels.append(safe_label)
-
-        label_to_classification[safe_label] = "SAFE"
-
-    if not labels:
+    if not policy_candidates:
         return {
             "classification": "NONE",
             "best_score": 0,
@@ -3349,24 +3368,57 @@ def run_organization_policy_ai_analysis(
             "matched_section": ""
         }
 
+    candidate_results = []
+
     try:
-        result = classifier(
-            clean_content,
-            labels,
-            multi_label=False,
-            hypothesis_template="{}",
-            truncation=True
-        )
+        for candidate in policy_candidates:
 
-        returned_labels = result.get(
-            "labels",
-            []
-        )
+            positive_label = candidate["positive_label"]
+            negative_label = candidate["negative_label"]
 
-        returned_scores = result.get(
-            "scores",
-            []
-        )
+            candidate_result = classifier(
+                clean_content,
+                [
+                    positive_label,
+                    negative_label
+                ],
+                multi_label=False,
+                hypothesis_template="{}",
+                truncation=True
+            )
+
+            returned_labels = candidate_result.get(
+                "labels",
+                []
+            )
+
+            returned_scores = candidate_result.get(
+                "scores",
+                []
+            )
+
+            positive_score = 0.0
+            negative_score = 0.0
+
+            for returned_label, returned_score in zip(
+                returned_labels,
+                returned_scores
+            ):
+                if returned_label == positive_label:
+                    positive_score = float(returned_score)
+
+                elif returned_label == negative_label:
+                    negative_score = float(returned_score)
+
+            candidate_results.append(
+                {
+                    "classification": candidate["classification"],
+                    "positive_score": positive_score,
+                    "negative_score": negative_score,
+                    "margin": positive_score - negative_score,
+                    "matched_section": candidate["section"]
+                }
+            )
 
     except Exception as error:
         print(
@@ -3384,70 +3436,123 @@ def run_organization_policy_ai_analysis(
             "matched_section": ""
         }
 
-    if not returned_labels or not returned_scores:
-        return {
-            "classification": "NONE",
-            "best_score": 0,
-            "margin": 0,
-            "scope_classification": scope_classification,
-            "scope_score": scope_score,
-            "scope_margin": scope_margin,
+    scores_by_classification = {
+        item["classification"]: item
+        for item in candidate_results
+    }
+
+    safe_result = scores_by_classification.get(
+        "SAFE",
+        {
+            "positive_score": 0.0,
+            "margin": -1.0,
             "matched_section": ""
         }
-
-    best_label = returned_labels[0]
-    best_score = float(
-        returned_scores[0]
     )
 
-    second_score = (
-        float(
-            returned_scores[1]
+    medium_result = scores_by_classification.get(
+        "MEDIUM",
+        {
+            "positive_score": 0.0,
+            "margin": -1.0,
+            "matched_section": ""
+        }
+    )
+
+    sensitive_result = scores_by_classification.get(
+        "SENSITIVE",
+        {
+            "positive_score": 0.0,
+            "margin": -1.0,
+            "matched_section": ""
+        }
+    )
+
+    safe_score = float(
+        safe_result.get(
+            "positive_score",
+            0
         )
-        if len(
-            returned_scores
-        ) > 1
-        else 0.0
     )
 
-
-    classification_result = label_to_classification.get(
-        best_label,
-        "NONE"
+    medium_score = float(
+        medium_result.get(
+            "positive_score",
+            0
+        )
     )
 
-
-    classification_margin = (
-        best_score - second_score
+    sensitive_score = float(
+        sensitive_result.get(
+            "positive_score",
+            0
+        )
     )
 
-
     #
-    # Prevent uncertain zero-shot predictions from
-    # automatically becoming SENSITIVE.
+    # SAFE takes priority when the customer-defined SAFE section is
+    # strongly and clearly the best semantic match.
     #
-    # Sensitive decisions require stronger confidence.
-    #
-
     if (
-        classification_result == "SENSITIVE"
-        and (
-            best_score < 0.80
-            or classification_margin < 0.20
-        )
+        safe_score >= 0.70
+        and safe_score >= medium_score + 0.05
+        and safe_score >= sensitive_score + 0.05
     ):
+        selected_result = safe_result
+        classification_result = "SAFE"
 
-        for label in returned_labels:
+    #
+    # SENSITIVE requires strong evidence because it produces the most
+    # restrictive AI recommendation. Mandatory baseline protections are
+    # still handled separately and always win.
+    #
+    elif (
+        sensitive_score >= 0.80
+        and sensitive_score >= medium_score + 0.05
+        and sensitive_score >= safe_score + 0.05
+    ):
+        selected_result = sensitive_result
+        classification_result = "SENSITIVE"
 
-            if (
-                label_to_classification.get(label)
-                == "SAFE"
-            ):
+    #
+    # MEDIUM is the review category for ambiguous or incomplete policy
+    # matches.
+    #
+    elif medium_score >= 0.65:
+        selected_result = medium_result
+        classification_result = "MEDIUM"
 
-                best_label = label
-                classification_result = "SAFE"
-                break
+    elif safe_score >= 0.55:
+        selected_result = safe_result
+        classification_result = "SAFE"
 
+    elif sensitive_score >= 0.70:
+        selected_result = sensitive_result
+        classification_result = "SENSITIVE"
+
+    else:
+        selected_result = max(
+            candidate_results,
+            key=lambda item: item["positive_score"]
+        )
+
+        classification_result = selected_result[
+            "classification"
+        ]
+
+    best_score = float(
+        selected_result.get(
+            "positive_score",
+            0
+        )
+    )
+
+    classification_margin = float(
+        selected_result.get(
+            "margin",
+            0
+        )
+    )
 
     return {
         "classification": classification_result,
@@ -3456,7 +3561,10 @@ def run_organization_policy_ai_analysis(
         "scope_classification": scope_classification,
         "scope_score": scope_score,
         "scope_margin": scope_margin,
-        "matched_section": best_label
+        "matched_section": selected_result.get(
+            "matched_section",
+            ""
+        )
     }
 
 
